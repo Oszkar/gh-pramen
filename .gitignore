@@ -1,0 +1,10 @@
+# Built extension binary
+/gh-pramen
+/gh-pramen.exe
+/dist/
+
+# Private notes: personal and work context stays out of the repository
+*.local.md
+
+# Tooling state
+.gstack/

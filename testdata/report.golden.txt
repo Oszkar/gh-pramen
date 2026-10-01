@@ -1,0 +1,28 @@
+Repository  acme/widgets
+Collected   2026-09-30 12:00 UTC
+
+Open pull requests
+  Total      5
+  Non-draft  4
+  Draft      1
+
+Last 30 days (since 2026-08-31 12:00 UTC)
+  Opened                34
+  Merged                25
+  Closed without merge   3
+
+Age of open pull requests
+                Total  Non-draft  Draft
+  under 7 days      1          1      0
+  7-29 days         0          0      0
+  30-89 days        2          2      0
+  90+ days          2          1      1
+
+Review facts for the 4 non-draft pull requests (one PR can count in several rows)
+  With approvals                3
+  With changes requested        1
+  With pending review requests  2
+    only from CODEOWNERS        1
+  With none of these            0
+
+Per-pull-request rows are not in this report yet; use --json for them.

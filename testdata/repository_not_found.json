@@ -1,0 +1,11 @@
+{
+  "data": { "repository": null },
+  "errors": [
+    {
+      "type": "NOT_FOUND",
+      "path": [ "repository" ],
+      "locations": [ { "line": 1, "column": 55 } ],
+      "message": "Could not resolve to a Repository with the name 'acme/widgets'."
+    }
+  ]
+}

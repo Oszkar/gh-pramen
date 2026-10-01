@@ -1,0 +1,44 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "totalCount": 5,
+        "pageInfo": { "hasNextPage": false, "endCursor": "CURSOR2" },
+        "nodes": [
+          {
+            "number": 160,
+            "title": "Backport the cache fix",
+            "url": "https://github.com/acme/widgets/pull/160",
+            "isDraft": false,
+            "baseRefName": "release/1.2",
+            "createdAt": "2026-08-15T14:00:00Z",
+            "updatedAt": "2026-09-20T09:00:00Z",
+            "reviewDecision": "CHANGES_REQUESTED",
+            "author": null,
+            "reviewRequests": { "totalCount": 0, "nodes": [] },
+            "latestOpinionatedReviews": {
+              "totalCount": 2,
+              "nodes": [ { "state": "CHANGES_REQUESTED" }, { "state": "APPROVED" } ]
+            }
+          },
+          {
+            "number": 171,
+            "title": "Fix typo in the README",
+            "url": "https://github.com/acme/widgets/pull/171",
+            "isDraft": false,
+            "baseRefName": "main",
+            "createdAt": "2026-09-29T12:00:00Z",
+            "updatedAt": "2026-09-30T08:00:00Z",
+            "reviewDecision": "APPROVED",
+            "author": { "__typename": "User", "login": "carol" },
+            "reviewRequests": { "totalCount": 0, "nodes": [] },
+            "latestOpinionatedReviews": {
+              "totalCount": 2,
+              "nodes": [ { "state": "APPROVED" }, { "state": "APPROVED" } ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

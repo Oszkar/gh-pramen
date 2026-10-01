@@ -1,0 +1,18 @@
+version: "2"
+
+# The standard preset: errcheck, govet, ineffassign, staticcheck, unused.
+linters:
+  default: standard
+  settings:
+    errcheck:
+      # Progress and error messages go to stderr; there is nothing to do if
+      # that write fails. Report output is written through functions that
+      # return the error.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+formatters:
+  enable:
+    - gofmt

@@ -87,11 +87,18 @@ jq -r '.pullRequests[] | select(.isDraft | not) | select(.ageSeconds >= 90 * 864
 ## Development
 
 ```sh
-go test ./...
-go vet ./...
+go test ./...        # fixtures only, no network or credentials needed
+golangci-lint run    # also runs in CI
 ```
 
-Tests run against fixtures in `testdata/` and need no network or credentials.
+Git hooks are managed by [lefthook](https://lefthook.dev): formatting and lint before commit, the commit message format, and tests before push. One-time setup per clone:
+
+```sh
+brew install lefthook golangci-lint
+lefthook install
+```
+
+Commit subjects and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org): `feat(report): list the oldest pull requests`, `fix: ...`, `docs: ...`, `chore(deps): ...`. Pull requests are squash-merged with the title as the commit subject, so the title is what ends up in history.
 
 ## License
 

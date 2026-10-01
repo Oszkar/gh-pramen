@@ -15,9 +15,15 @@ A gh CLI extension in Go that reports a repository's open pull request backlog. 
 
 ```sh
 go test ./...                                # no network needed
-go vet ./... && gofmt -l .
+golangci-lint run && golangci-lint fmt --diff
 go build -o gh-pramen . && ./gh-pramen -R owner/repo          # add --json for the full report
 ```
+
+## Commits and pull requests
+
+- `main` only takes squash-merged pull requests; the PR title becomes the commit subject.
+- Commit subjects and PR titles follow Conventional Commits with the types in `scripts/commit-msg.sh`: `type(scope): description`, `!` for breaking changes. Scopes are free-form and optional (`fetch`, `report`, `render`, `docs`, `ci`, `deps`).
+- Hooks run through lefthook (`lefthook.yml`): format and lint on commit, message check, tests on push.
 
 ## Conventions
 

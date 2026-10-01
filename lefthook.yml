@@ -1,0 +1,22 @@
+# Git hooks, managed by lefthook (https://lefthook.dev).
+# One-time setup per clone: brew install lefthook golangci-lint && lefthook install
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format
+      glob: "*.go"
+      run: golangci-lint fmt --diff {staged_files}
+    - name: lint
+      glob: "*.go"
+      run: golangci-lint run
+
+commit-msg:
+  jobs:
+    - name: conventional commit
+      run: sh scripts/commit-msg.sh {1}
+
+pre-push:
+  jobs:
+    - name: test
+      run: go test ./...

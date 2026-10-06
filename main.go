@@ -100,7 +100,7 @@ func report(repoFlag string, asJSON bool, e env) error {
 	if asJSON {
 		return writeJSON(e.stdout, r)
 	}
-	return writeSummary(e.stdout, r)
+	return writeSummary(e.stdout, r, 0)
 }
 
 func resolveRepo(repoFlag string, e env) (repository.Repository, error) {

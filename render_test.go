@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -9,11 +10,24 @@ import (
 
 func summaryOf(t *testing.T, prs []PullRequest, flow Flow) string {
 	t.Helper()
+	return summaryWithLimit(t, prs, flow, defaultRowLimit)
+}
+
+func summaryWithLimit(t *testing.T, prs []PullRequest, flow Flow, limit int) string {
+	t.Helper()
 	var out bytes.Buffer
-	if err := writeSummary(&out, buildReport("acme/widgets", prs, flow, testNow)); err != nil {
+	if err := writeSummary(&out, buildReport("acme/widgets", prs, flow, testNow), limit); err != nil {
 		t.Fatal(err)
 	}
 	return out.String()
+}
+
+func numberedPR(number int, age time.Duration, isDraft bool) PullRequest {
+	pr := openPR(number, age)
+	pr.IsDraft = isDraft
+	pr.Title = "Title " + strconv.Itoa(number)
+	pr.URL = "https://github.com/acme/widgets/pull/" + strconv.Itoa(number)
+	return pr
 }
 
 func TestWriteSummaryRightAlignsCountsOfDifferentWidths(t *testing.T) {
@@ -169,5 +183,124 @@ func TestCleanTitle(t *testing.T) {
 		if got := cleanTitle(tt.in); got != tt.want {
 			t.Errorf("%s: cleanTitle = %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+func TestWriteSummaryListsNonDraftsBeforeDraftsOldestFirst(t *testing.T) {
+	prs := []PullRequest{
+		numberedPR(2, 10*day, true),
+		numberedPR(3, 5*day, false),
+		numberedPR(4, 20*day, false),
+	}
+
+	got := summaryOf(t, prs, Flow{})
+
+	nonDraft := strings.Index(got, "Open pull requests, non-draft (2, oldest first by creation date)")
+	draft := strings.Index(got, "Open pull requests, draft (1, oldest first by creation date)")
+	if nonDraft < 0 || draft < nonDraft {
+		t.Fatalf("want non-draft section before draft section; got:\n%s", got)
+	}
+	if strings.Index(got, "Title 4") > strings.Index(got, "Title 3") {
+		t.Errorf("want #4 (20 days old) listed before #3 (5 days old); got:\n%s", got)
+	}
+	if strings.Contains(got, "not in this report yet") {
+		t.Errorf("summary still says rows are missing:\n%s", got)
+	}
+}
+
+func TestWriteSummaryCapsEachSectionAndSaysSo(t *testing.T) {
+	var prs []PullRequest
+	for i := 1; i <= 5; i++ {
+		prs = append(prs, numberedPR(i, time.Duration(10-i)*day, false))
+	}
+	for i := 6; i <= 8; i++ {
+		prs = append(prs, numberedPR(i, time.Duration(10-i)*day, true))
+	}
+
+	got := summaryWithLimit(t, prs, Flow{}, 2)
+
+	for _, want := range []string{
+		"Open pull requests, non-draft (showing 2 of 5, oldest first by creation date)",
+		"Open pull requests, draft (showing 2 of 3, oldest first by creation date)",
+		"Title 1", "Title 2", "Title 6", "Title 7",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("summary does not contain %q; got:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"Title 3", "Title 8"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("summary contains %q beyond the limit:\n%s", unwanted, got)
+		}
+	}
+}
+
+func TestWriteSummaryLimitZeroShowsEveryRow(t *testing.T) {
+	var prs []PullRequest
+	for i := 1; i <= 30; i++ {
+		prs = append(prs, numberedPR(i, time.Duration(40-i)*day, false))
+	}
+
+	got := summaryWithLimit(t, prs, Flow{}, 0)
+
+	if !strings.Contains(got, "non-draft (30, oldest first") || !strings.Contains(got, "Title 30") {
+		t.Errorf("want all 30 rows listed; got:\n%s", got)
+	}
+}
+
+func TestWriteSummaryEmptySectionsSaySoWithoutTableOrLinks(t *testing.T) {
+	got := summaryOf(t, nil, Flow{})
+
+	for _, want := range []string{
+		"Open pull requests, non-draft (none)\n",
+		"Open pull requests, draft (none)\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("summary does not contain %q; got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Links:") || strings.Contains(got, "Title") {
+		t.Errorf("empty report should have no links line or table header:\n%s", got)
+	}
+}
+
+func TestWriteSummaryShowsLinksPatternOnceUnderFirstSectionWithRows(t *testing.T) {
+	prs := []PullRequest{numberedPR(7, 3*day, true), numberedPR(8, 2*day, true)}
+
+	got := summaryOf(t, prs, Flow{})
+
+	if n := strings.Count(got, "Links:"); n != 1 {
+		t.Fatalf("Links line appears %d times, want 1; got:\n%s", n, got)
+	}
+	want := "Open pull requests, draft (2, oldest first by creation date)\nLinks: https://github.com/acme/widgets/pull/<number>\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("summary does not contain %q; got:\n%s", want, got)
+	}
+}
+
+func TestWriteSummaryOmitsLinksWhenURLDoesNotEndInNumber(t *testing.T) {
+	pr := numberedPR(7, day, false)
+	pr.URL = "https://example.com/somewhere/else"
+
+	got := summaryOf(t, []PullRequest{pr}, Flow{})
+
+	if strings.Contains(got, "Links:") {
+		t.Errorf("want no Links line for an unrecognised URL; got:\n%s", got)
+	}
+}
+
+func TestWriteSummaryAlignsRowsByRuneCount(t *testing.T) {
+	a := numberedPR(1, 3*day, false)
+	a.Title = "x"
+	a.Author = &Author{Login: "élodie", Type: "User"}
+	b := numberedPR(10, 2*day, false)
+	b.Title = "y"
+	b.Author = &Author{Login: "bob", Type: "User"}
+
+	got := summaryOf(t, []PullRequest{a, b}, Flow{})
+
+	if !strings.Contains(got, "   1  3d   3d       -             élodie  x\n") ||
+		!strings.Contains(got, "  10  2d   2d       -             bob     y\n") {
+		t.Errorf("rows are not aligned by rune count; got:\n%s", got)
 	}
 }

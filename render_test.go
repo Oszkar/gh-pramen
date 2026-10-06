@@ -200,7 +200,11 @@ func TestWriteSummaryListsNonDraftsBeforeDraftsOldestFirst(t *testing.T) {
 	if nonDraft < 0 || draft < nonDraft {
 		t.Fatalf("want non-draft section before draft section; got:\n%s", got)
 	}
-	if strings.Index(got, "Title 4") > strings.Index(got, "Title 3") {
+	idx4, idx3 := strings.Index(got, "Title 4"), strings.Index(got, "Title 3")
+	if idx4 < 0 || idx3 < 0 {
+		t.Fatalf("want both Title 4 and Title 3 listed; got:\n%s", got)
+	}
+	if idx4 > idx3 {
 		t.Errorf("want #4 (20 days old) listed before #3 (5 days old); got:\n%s", got)
 	}
 	if strings.Contains(got, "not in this report yet") {
@@ -232,6 +236,23 @@ func TestWriteSummaryCapsEachSectionAndSaysSo(t *testing.T) {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("summary contains %q beyond the limit:\n%s", unwanted, got)
 		}
+	}
+}
+
+func TestWriteSummaryRowsEqualToLimitDoNotSayShowing(t *testing.T) {
+	prs := []PullRequest{
+		numberedPR(1, 3*day, false),
+		numberedPR(2, 2*day, false),
+		numberedPR(3, 1*day, false),
+	}
+
+	got := summaryWithLimit(t, prs, Flow{}, 3)
+
+	if !strings.Contains(got, "non-draft (3, oldest first by creation date)") {
+		t.Errorf("want plain count header; got:\n%s", got)
+	}
+	if strings.Contains(got, "showing") {
+		t.Errorf("summary says showing although every row is shown:\n%s", got)
 	}
 }
 

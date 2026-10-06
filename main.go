@@ -39,20 +39,28 @@ Usage:
 
 Flags:
   -R, --repo [HOST/]OWNER/REPO   Repository to report on (default: the current repository)
+      --limit N                  Rows shown per section in the terminal report (default 20)
+      --all                      Show every row in the terminal report
       --json                     Write the full report as JSON, including every pull request
+
+--limit and --all only change what the terminal shows; every pull request is
+always fetched, so they do not make the command faster.
 `
 
 // run executes the command and returns its exit code. The report goes to
 // stdout; progress and errors go to stderr.
 func run(args []string, e env) int {
 	var repoFlag string
-	var asJSON bool
+	var asJSON, all bool
+	var limit int
 	fs := flag.NewFlagSet("gh pramen", flag.ContinueOnError)
 	fs.SetOutput(e.stderr)
 	fs.Usage = func() { fmt.Fprint(e.stderr, usage) }
 	fs.StringVar(&repoFlag, "R", "", "")
 	fs.StringVar(&repoFlag, "repo", "", "")
 	fs.BoolVar(&asJSON, "json", false, "")
+	fs.IntVar(&limit, "limit", defaultRowLimit, "")
+	fs.BoolVar(&all, "all", false, "")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -64,15 +72,35 @@ func run(args []string, e env) int {
 		fs.Usage()
 		return 2
 	}
+	limitSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "limit" {
+			limitSet = true
+		}
+	})
+	if limit < 1 {
+		fmt.Fprintf(e.stderr, "--limit must be at least 1, got %d\n", limit)
+		fs.Usage()
+		return 2
+	}
+	if limitSet && all {
+		fmt.Fprintln(e.stderr, "--limit and --all cannot be used together")
+		fs.Usage()
+		return 2
+	}
+	rowLimit := limit
+	if all {
+		rowLimit = 0
+	}
 
-	if err := report(repoFlag, asJSON, e); err != nil {
+	if err := report(repoFlag, asJSON, rowLimit, e); err != nil {
 		fmt.Fprintln(e.stderr, err)
 		return 1
 	}
 	return 0
 }
 
-func report(repoFlag string, asJSON bool, e env) error {
+func report(repoFlag string, asJSON bool, rowLimit int, e env) error {
 	repo, err := resolveRepo(repoFlag, e)
 	if err != nil {
 		return err
@@ -100,7 +128,7 @@ func report(repoFlag string, asJSON bool, e env) error {
 	if asJSON {
 		return writeJSON(e.stdout, r)
 	}
-	return writeSummary(e.stdout, r, 0)
+	return writeSummary(e.stdout, r, rowLimit)
 }
 
 func resolveRepo(repoFlag string, e env) (repository.Repository, error) {

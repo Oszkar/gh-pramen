@@ -6,6 +6,9 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 func writeJSON(w io.Writer, r Report) error {
@@ -92,4 +95,83 @@ func writeSummary(w io.Writer, r Report) error {
 
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+const (
+	maxAuthorRunes = 24
+	maxTitleRunes  = 60
+)
+
+// humanDuration shows a duration coarsely, always rounded down: <1h, Nh
+// (under a day), Nd (under 90 days, so the 7, 30 and 90 day bucket edges
+// stay visible), Nmo (fixed 30-day months, under a year), then Ny.
+func humanDuration(seconds int64) string {
+	d := time.Duration(max(seconds, 0)) * time.Second
+	days := int(d / day)
+	switch {
+	case d < time.Hour:
+		return "<1h"
+	case d < day:
+		return fmt.Sprintf("%dh", int(d/time.Hour))
+	case days < 90:
+		return fmt.Sprintf("%dd", days)
+	case days < 365:
+		return fmt.Sprintf("%dmo", days/30)
+	default:
+		return fmt.Sprintf("%dy", days/365)
+	}
+}
+
+// reviewFacts lists the observed review facts of a PR in one cell. Approvals
+// are reviewers' latest approving reviews, not an approval to merge.
+func reviewFacts(pr PullRequest) string {
+	var parts []string
+	if pr.Approvals > 0 {
+		parts = append(parts, fmt.Sprintf("approvals %d", pr.Approvals))
+	}
+	if pr.ChangesRequested > 0 {
+		parts = append(parts, fmt.Sprintf("changes requested %d", pr.ChangesRequested))
+	}
+	if pr.PendingReviewRequests > 0 {
+		s := fmt.Sprintf("pending requests %d", pr.PendingReviewRequests)
+		if pr.PendingCodeOwnerRequests == pr.PendingReviewRequests {
+			s += " (CODEOWNERS only)"
+		}
+		parts = append(parts, s)
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func authorLabel(a *Author) string {
+	if a == nil {
+		return "ghost"
+	}
+	label := a.Login
+	if a.Type == "Bot" {
+		label += "[bot]"
+	}
+	return truncateRunes(label, maxAuthorRunes)
+}
+
+// cleanTitle makes a title safe for a terminal: control characters, such as
+// newlines and escape sequences, become spaces, and long titles are cut.
+func cleanTitle(title string) string {
+	clean := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, title)
+	return truncateRunes(clean, maxTitleRunes)
+}
+
+// truncateRunes cuts s to at most n runes, ending in an ellipsis when cut.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n-1]) + "…"
 }

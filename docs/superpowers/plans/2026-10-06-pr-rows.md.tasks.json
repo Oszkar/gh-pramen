@@ -4,37 +4,45 @@
     {
       "id": 0,
       "subject": "Task 1: Formatting helpers",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Pure functions that turn row facts into text cells (humanDuration, reviewFacts, authorLabel, cleanTitle), with every spec rule tested.\n\n**Files:**\n- Modify: render.go\n- Test: render_test.go\n\n**Acceptance Criteria:**\n- humanDuration returns <1h, Nh, Nd, Nmo, Ny with boundaries 59m, 1h, 23h, 24h, 89d, 90d, 364d, 365d and clamps negatives\n- reviewFacts returns - for none, orders approvals, changes requested, pending requests, appends (CODEOWNERS only) only when all pending are CODEOWNERS\n- authorLabel: login, login[bot], ghost for nil, 24 rune cap\n- cleanTitle: control chars become spaces, 60 rune cap with ellipsis\n\n**Verify:** go test ./... -run 'HumanDuration|ReviewFacts|AuthorLabel|CleanTitle' -v -> PASS\n\n**Steps:** See plan Task 1 (tests first, implement, lint, commit).\n\n```json:metadata\n{\"files\": [\"render.go\", \"render_test.go\"], \"verifyCommand\": \"go test ./... -run 'HumanDuration|ReviewFacts|AuthorLabel|CleanTitle' -v\", \"acceptanceCriteria\": [\"humanDuration boundaries\", \"reviewFacts text\", \"authorLabel\", \"cleanTitle\"]}\n```"
     },
     {
       "id": 1,
       "subject": "Task 2: Row sections in the summary",
-      "status": "pending",
-      "blockedBy": [0],
+      "status": "completed",
+      "blockedBy": [
+        0
+      ],
       "description": "**Goal:** writeSummary appends capped non-draft and draft row sections; hand-written golden shows them.\n\n**Files:**\n- Modify: render.go, render_test.go, main.go (call site), testdata/report.golden.txt\n\n**Acceptance Criteria:**\n- Non-draft section before draft, oldest first, Review facts column only for non-draft\n- Header forms: (showing N of T, ...), (T, ...), (none)\n- Links line once under first section with rows; absent with no rows or unrecognised URL\n- Limit 0 shows all; no trailing whitespace; old 'not in this report yet' line removed\n- Golden matches byte for byte\n\n**Verify:** go test ./... -v -> PASS incl. TestRunWithoutJSONWritesSummaryToStdout\n\n**Steps:** See plan Task 2.\n\n```json:metadata\n{\"files\": [\"render.go\", \"render_test.go\", \"main.go\", \"testdata/report.golden.txt\"], \"verifyCommand\": \"go test ./...\", \"acceptanceCriteria\": [\"section order and sort\", \"header forms\", \"links line\", \"limit 0\", \"no trailing whitespace\", \"golden matches\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 3: --limit and --all flags",
-      "status": "pending",
-      "blockedBy": [1],
+      "status": "completed",
+      "blockedBy": [
+        1
+      ],
       "description": "**Goal:** Users can change rows per section; invalid combinations fail before any request.\n\n**Files:**\n- Modify: main.go\n- Test: main_test.go\n\n**Acceptance Criteria:**\n- Default 20 rows per section; --limit N; --all\n- --limit 0, --limit -1, explicit --limit with --all exit 2 with usage, no request, with or without --json\n- --json with valid flags still writes full JSON\n- Usage says the flags only change what the terminal shows\n\n**Verify:** go test ./... -run 'Limit|All|RowFlags|TwentyRows' -v -> PASS\n\n**Steps:** See plan Task 3.\n\n```json:metadata\n{\"files\": [\"main.go\", \"main_test.go\"], \"verifyCommand\": \"go test ./...\", \"acceptanceCriteria\": [\"default 20\", \"limit and all\", \"validation before fetch\", \"json unaffected\", \"usage text\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 4: Documentation",
-      "status": "pending",
-      "blockedBy": [2],
+      "status": "completed",
+      "blockedBy": [
+        2
+      ],
       "description": "**Goal:** Product, architecture and README describe the rows; the open decision is closed.\n\n**Files:**\n- Modify: docs/product.md, docs/architecture.md, README.md\n\n**Acceptance Criteria:**\n- No doc still says rows are only in the JSON\n- product.md section 6 records the decision (2026-10-06) and defines humanized times, approvals wording, sample-not-trace\n- README example equals testdata/report.golden.txt\n\n**Verify:** diff <(sed -n '/^Repository  acme/,/^```$/p' README.md | sed '$d') testdata/report.golden.txt && echo same -> same\n\n**Steps:** See plan Task 4.\n\n```json:metadata\n{\"files\": [\"docs/product.md\", \"docs/architecture.md\", \"README.md\"], \"verifyCommand\": \"go test ./... && golangci-lint run\", \"acceptanceCriteria\": [\"no stale statements\", \"decision recorded\", \"README example equals golden\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 5: Check against real output",
-      "status": "pending",
-      "blockedBy": [3],
+      "status": "completed",
+      "blockedBy": [
+        3
+      ],
       "description": "**Goal:** Look at rows on a real public repository and report anything misleading.\n\n**Files:** none unless a defect is found.\n\n**Acceptance Criteria:**\n- Built binary prints both sections for a real repo with visible truncation\n- Three rows match GitHub\n- Long titles/logins, bots, non-ASCII were checked; findings reported\n\n**Verify:** go build -o gh-pramen . && ./gh-pramen -R dlvhdr/gh-dash -> summary plus rows, exit 0\n\n**Steps:** See plan Task 5. Ask the user before pushing or opening the PR.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"go build -o gh-pramen . && ./gh-pramen -R dlvhdr/gh-dash\", \"acceptanceCriteria\": [\"both sections print\", \"rows match GitHub\", \"findings reported\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-10-06T00:00:00Z"
+  "lastUpdated": "2026-10-07T01:49:05Z"
 }

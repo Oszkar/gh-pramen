@@ -18,8 +18,8 @@ gh extension install .
 ## Use
 
 ```sh
-gh pramen                           # summary for the current repository
-gh pramen -R owner/repo             # summary for one explicit repository
+gh pramen                           # report for the current repository
+gh pramen -R owner/repo             # report for one explicit repository
 gh pramen -R owner/repo --limit 50  # rows shown per section (default 20)
 gh pramen -R owner/repo --all       # every row
 gh pramen -R owner/repo --json      # full report as JSON, including every open PR

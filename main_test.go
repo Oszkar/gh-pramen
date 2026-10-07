@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -273,5 +274,91 @@ func TestRunWritesNothingToStdoutWhenFlowFetchFails(t *testing.T) {
 	}
 	if tr.stdout.Len() != 0 {
 		t.Errorf("stdout = %q, want nothing", tr.stdout.String())
+	}
+}
+
+// manyOpenPRs is a first page of n non-draft PRs numbered 1..n.
+func manyOpenPRs(n int) cannedResponse {
+	var nodes []string
+	for i := 1; i <= n; i++ {
+		nodes = append(nodes, fmt.Sprintf(`{"number":%d,"title":"PR %d","url":"https://github.com/acme/widgets/pull/%d","isDraft":false,"baseRefName":"main",
+			"createdAt":"2026-01-%02dT00:00:00Z","updatedAt":"2026-01-%02dT00:00:00Z","reviewDecision":null,"author":null,
+			"reviewRequests":{"totalCount":0,"nodes":[]},"latestOpinionatedReviews":{"totalCount":0,"nodes":[]}}`, i, i, i, i, i))
+	}
+	body := fmt.Sprintf(`{"data":{"repository":{"pullRequests":{"totalCount":%d,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[%s]}}}}`, n, strings.Join(nodes, ","))
+	return cannedResponse{status: http.StatusOK, body: body}
+}
+
+func TestRunShowsTwentyRowsPerSectionByDefault(t *testing.T) {
+	tr := newTestRun(t, manyOpenPRs(25), fixture(t, "flow.json"))
+
+	code := run([]string{"-R", "acme/widgets"}, tr.env)
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr: %s", code, tr.stderr.String())
+	}
+	if !strings.Contains(tr.stdout.String(), "non-draft (showing 20 of 25, oldest first") {
+		t.Errorf("stdout = %s, want a cap of 20", tr.stdout.String())
+	}
+}
+
+func TestRunLimitChangesRowsPerSection(t *testing.T) {
+	tr := newTestRun(t, manyOpenPRs(25), fixture(t, "flow.json"))
+
+	run([]string{"-R", "acme/widgets", "--limit", "3"}, tr.env)
+
+	if !strings.Contains(tr.stdout.String(), "non-draft (showing 3 of 25, oldest first") {
+		t.Errorf("stdout = %s, want a cap of 3", tr.stdout.String())
+	}
+}
+
+func TestRunAllShowsEveryRow(t *testing.T) {
+	tr := newTestRun(t, manyOpenPRs(25), fixture(t, "flow.json"))
+
+	run([]string{"-R", "acme/widgets", "--all"}, tr.env)
+
+	if !strings.Contains(tr.stdout.String(), "non-draft (25, oldest first") {
+		t.Errorf("stdout = %s, want all 25 rows", tr.stdout.String())
+	}
+}
+
+func TestRunRejectsBadRowFlagsBeforeAnyRequest(t *testing.T) {
+	for _, args := range [][]string{
+		{"-R", "acme/widgets", "--limit", "0"},
+		{"-R", "acme/widgets", "--limit", "-1"},
+		{"-R", "acme/widgets", "--limit", "5", "--all"},
+		{"-R", "acme/widgets", "--limit", "20", "--all"},
+		{"-R", "acme/widgets", "--json", "--limit", "0"},
+		{"-R", "acme/widgets", "--json", "--limit", "5", "--all"},
+	} {
+		tr := newTestRun(t)
+
+		code := run(args, tr.env)
+
+		if code != 2 {
+			t.Errorf("run(%v) exit code = %d, want 2", args, code)
+		}
+		if !strings.Contains(tr.stderr.String(), "Usage") {
+			t.Errorf("run(%v) stderr = %q, want usage", args, tr.stderr.String())
+		}
+		if len(tr.fake.variables) != 0 || tr.stdout.Len() != 0 {
+			t.Errorf("run(%v) made %d requests and wrote %q; want neither", args, len(tr.fake.variables), tr.stdout.String())
+		}
+	}
+}
+
+func TestRunJSONIgnoresValidRowFlags(t *testing.T) {
+	for _, extra := range [][]string{{"--limit", "1"}, {"--all"}} {
+		tr := newTestRun(t, fixture(t, "open_prs_page1.json"), fixture(t, "open_prs_page2.json"), fixture(t, "flow.json"))
+
+		code := run(append([]string{"-R", "acme/widgets", "--json"}, extra...), tr.env)
+
+		want, err := os.ReadFile("testdata/report.golden.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code != 0 || tr.stdout.String() != string(want) {
+			t.Errorf("run with %v: exit %d, stdout differs from the golden JSON", extra, code)
+		}
 	}
 }

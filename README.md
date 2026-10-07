@@ -4,7 +4,7 @@
 
 A [GitHub CLI](https://cli.github.com) extension that shows what is sitting open in a repository's pull request backlog: how much, how old, in what review state, and which PRs those are. It reports facts, not judgments, and has no per-person metrics.
 
-**Status:** early. The terminal output is a summary; the per-PR rows are only in the JSON report so far.
+**Status:** early. The terminal output is a summary followed by the oldest open PRs; the JSON report has every PR.
 
 ## Install
 
@@ -18,9 +18,11 @@ gh extension install .
 ## Use
 
 ```sh
-gh pramen                         # summary for the current repository
-gh pramen -R owner/repo           # summary for one explicit repository
-gh pramen -R owner/repo --json    # full report, including every open PR
+gh pramen                           # report for the current repository
+gh pramen -R owner/repo             # report for one explicit repository
+gh pramen -R owner/repo --limit 50  # rows shown per section (default 20)
+gh pramen -R owner/repo --all       # every row
+gh pramen -R owner/repo --json      # full report as JSON, including every open PR
 ```
 
 ```
@@ -50,13 +52,27 @@ Review facts for the 4 non-draft pull requests (one PR can count in several rows
   With pending review requests  2
     only from CODEOWNERS        1
   With none of these            0
+
+Open pull requests, non-draft (4, oldest first by creation date)
+Links: https://github.com/acme/widgets/pull/<number>
+
+    #  Age  Updated  Review facts                          Author           Title
+  140  5mo  29d      approvals 1, pending requests 2       bob              Add retry to the sync job
+  152  72d  72d      pending requests 1 (CODEOWNERS only)  dependabot[bot]  Bump left-pad from 1.2.0 to 1.3.0
+  160  45d  10d      approvals 1, changes requested 1      ghost            Backport the cache fix
+  171  1d   4h       approvals 2                           carol            Fix typo in the README
+
+Open pull requests, draft (1, oldest first by creation date)
+
+    #  Age  Updated  Author  Title
+  101  2y   1y       alice   Rework the import pipeline
 ```
 
 The report goes to stdout; progress and errors go to stderr. The command only reads from GitHub, using your existing `gh` authentication. If the repository is not found, check which account is active with `gh auth status`.
 
 ## What the report contains
 
-The JSON report has these parts; the summary shows all but the last.
+The JSON report has these parts; the summary shows the counts, and the terminal lists a capped sample of `pullRequests`.
 
 | Part | Content |
 |---|---|
@@ -68,7 +84,7 @@ The JSON report has these parts; the summary shows all but the last.
 
 Each term has a precise meaning and known limitations; see [the definitions](docs/product.md#definitions). Two matter most: an old PR is not necessarily abandoned, and an approved PR is not necessarily ready to merge.
 
-Until the terminal report lists individual PRs, `jq` can pull them from the JSON:
+The terminal lists only the oldest PRs of each section. To select others, such as everything old, use `jq` on the JSON:
 
 ```sh
 gh pramen -R owner/repo --json > backlog.json

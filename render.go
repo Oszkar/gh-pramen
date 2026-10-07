@@ -6,6 +6,9 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 func writeJSON(w io.Writer, r Report) error {
@@ -55,8 +58,9 @@ func writeAgeDistribution(b *strings.Builder, buckets []AgeBucket) {
 }
 
 // writeSummary writes the plain-text summary of the report. It only lays
-// out what the report already contains.
-func writeSummary(w io.Writer, r Report) error {
+// out what the report already contains. rowLimit is the most rows shown per
+// section, 0 for all.
+func writeSummary(w io.Writer, r Report, rowLimit int) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Repository  %s\n", r.Repository)
 	fmt.Fprintf(&b, "Collected   %s\n", r.CollectedAt.Format(timeLayout))
@@ -88,8 +92,178 @@ func writeSummary(w io.Writer, r Report) error {
 		{"With none of these", rs.WithNoneOfThese},
 	})
 
-	fmt.Fprint(&b, "\nPer-pull-request rows are not in this report yet; use --json for them.\n")
+	var nonDraft, draft []Row
+	for _, row := range r.PullRequests {
+		if row.IsDraft {
+			draft = append(draft, row)
+		} else {
+			nonDraft = append(nonDraft, row)
+		}
+	}
+	linksDone := false
+	writeRowSection(&b, "non-draft", nonDraft, rowLimit, true, &linksDone)
+	writeRowSection(&b, "draft", draft, rowLimit, false, &linksDone)
 
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+const (
+	maxAuthorRunes = 24
+	maxTitleRunes  = 60
+)
+
+// humanDuration shows a duration coarsely, always rounded down: <1h, Nh
+// (under a day), Nd (under 90 days, so the 7, 30 and 90 day bucket edges
+// stay visible), Nmo (fixed 30-day months, under a year), then Ny.
+func humanDuration(seconds int64) string {
+	d := time.Duration(max(seconds, 0)) * time.Second
+	days := int(d / day)
+	switch {
+	case d < time.Hour:
+		return "<1h"
+	case d < day:
+		return fmt.Sprintf("%dh", int(d/time.Hour))
+	case days < 90:
+		return fmt.Sprintf("%dd", days)
+	case days < 365:
+		return fmt.Sprintf("%dmo", days/30)
+	default:
+		return fmt.Sprintf("%dy", days/365)
+	}
+}
+
+// reviewFacts lists the observed review facts of a PR in one cell. Approvals
+// are reviewers' latest approving reviews, not an approval to merge.
+func reviewFacts(pr PullRequest) string {
+	var parts []string
+	if pr.Approvals > 0 {
+		parts = append(parts, fmt.Sprintf("approvals %d", pr.Approvals))
+	}
+	if pr.ChangesRequested > 0 {
+		parts = append(parts, fmt.Sprintf("changes requested %d", pr.ChangesRequested))
+	}
+	if pr.PendingReviewRequests > 0 {
+		s := fmt.Sprintf("pending requests %d", pr.PendingReviewRequests)
+		if pr.PendingCodeOwnerRequests == pr.PendingReviewRequests {
+			s += " (CODEOWNERS only)"
+		}
+		parts = append(parts, s)
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, ", ")
+}
+
+// authorLabel names a PR author. A nil author means GitHub no longer has the
+// account; "[bot]" marks bot accounts.
+func authorLabel(a *Author) string {
+	if a == nil {
+		return "ghost"
+	}
+	label := a.Login
+	if a.Type == "Bot" {
+		label += "[bot]"
+	}
+	return truncateRunes(label, maxAuthorRunes)
+}
+
+// cleanTitle makes a title safe for a terminal: control characters, such as
+// newlines and escape sequences, become spaces, and long titles are cut.
+func cleanTitle(title string) string {
+	clean := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, title)
+	return truncateRunes(clean, maxTitleRunes)
+}
+
+// truncateRunes cuts s to at most n runes, ending in an ellipsis when cut.
+// n must be >= 1.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n-1]) + "…"
+}
+
+// defaultRowLimit is how many rows each section shows unless --limit or
+// --all says otherwise.
+const defaultRowLimit = 20
+
+// writeTable writes rows as aligned columns. The first column is
+// right-aligned, the last is not padded, and widths count runes, not bytes.
+func writeTable(b *strings.Builder, header []string, rows [][]string) {
+	widths := make([]int, len(header))
+	for _, row := range append([][]string{header}, rows...) {
+		for i, cell := range row {
+			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
+		}
+	}
+	line := func(row []string) {
+		cells := make([]string, len(row))
+		for i, cell := range row {
+			if i == 0 {
+				cells[i] = fmt.Sprintf("%*s", widths[i], cell)
+			} else {
+				cells[i] = fmt.Sprintf("%-*s", widths[i], cell)
+			}
+		}
+		fmt.Fprintf(b, "  %s\n", strings.TrimRight(strings.Join(cells, "  "), " "))
+	}
+	line(header)
+	for _, row := range rows {
+		line(row)
+	}
+}
+
+// linksLine derives the URL pattern for PR links from one PR's URL, or
+// reports false when the URL does not end in the PR number.
+func linksLine(row Row) (string, bool) {
+	number := strconv.Itoa(row.Number)
+	if !strings.HasSuffix(row.URL, "/"+number) {
+		return "", false
+	}
+	return "Links: " + strings.TrimSuffix(row.URL, number) + "<number>", true
+}
+
+// writeRowSection writes one titled table of rows, at most limit of them
+// (0 means all). The header always says how many of how many are shown.
+func writeRowSection(b *strings.Builder, kind string, rows []Row, limit int, withReview bool, linksDone *bool) {
+	if len(rows) == 0 {
+		fmt.Fprintf(b, "\nOpen pull requests, %s (none)\n", kind)
+		return
+	}
+	shown := rows
+	count := strconv.Itoa(len(rows))
+	if limit > 0 && len(rows) > limit {
+		shown = rows[:limit]
+		count = fmt.Sprintf("showing %d of %d", limit, len(rows))
+	}
+	fmt.Fprintf(b, "\nOpen pull requests, %s (%s, oldest first by creation date)\n", kind, count)
+	if !*linksDone {
+		if line, ok := linksLine(shown[0]); ok {
+			fmt.Fprintln(b, line)
+			*linksDone = true
+		}
+	}
+	fmt.Fprintln(b)
+
+	header := []string{"#", "Age", "Updated", "Author", "Title"}
+	if withReview {
+		header = []string{"#", "Age", "Updated", "Review facts", "Author", "Title"}
+	}
+	cells := make([][]string, 0, len(shown))
+	for _, row := range shown {
+		cell := []string{strconv.Itoa(row.Number), humanDuration(row.AgeSeconds), humanDuration(row.SecondsSinceUpdate)}
+		if withReview {
+			cell = append(cell, reviewFacts(row.PullRequest))
+		}
+		cell = append(cell, authorLabel(row.Author), cleanTitle(row.Title))
+		cells = append(cells, cell)
+	}
+	writeTable(b, header, cells)
 }

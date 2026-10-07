@@ -34,6 +34,8 @@ A **gh CLI extension, written in Go**, producing a readable, factual snapshot of
 gh pramen                    # current repository
 gh pramen -R owner/repo       # one explicit repository
 gh pramen -R owner/repo --json
+gh pramen -R owner/repo --limit 50   # rows per section (default 20)
+gh pramen -R owner/repo --all        # every row
 ```
 
 Produce a terminal report by default and structured JSON for inspecting or reusing results. Plain output remains readable when redirected. Progress/errors go to stderr.
@@ -49,7 +51,7 @@ No separate `sync`, `cycle-time`, `reviews`, `size`, or `dora` commands initiall
 | Recent flow | PRs opened, merged, and closed without merge in the last 30 days; context for the backlog size |
 | Age distribution | Age buckets split by draft/non-draft |
 | Review state | Counts and PR lists of non-draft PRs by observed review facts (pending review requests, approvals, changes requested), with pending requests that come only from CODEOWNERS shown separately. GitHub's review decision is kept per PR in the JSON, not summarized |
-| PR details | Age, draft state, review state, time since update, author, title, URL; oldest first |
+| PR details | The terminal lists the oldest non-draft and draft PRs in separate sections, capped per section, with age, time since update, review facts (non-draft), author and title; the JSON has every PR with full detail |
 
 Start with age buckets of **under 7 days, 7–29 days, 30–89 days, and 90+ days**. These help navigate the backlog; they are not performance targets.
 
@@ -77,6 +79,9 @@ Precise time waiting for review is deferred: it requires history and decisions a
 | Latest reviews | Approvals and change requests, counting each reviewer's latest such review | Comment-only reviews, including those left by review bots, are not counted. A review may predate later commits; does not establish merge readiness |
 | Review decision | GitHub's current reported review decision | Often empty, even where branch rules require reviews. Does not establish wait duration or merge readiness |
 | Author | Account that opened the PR | Not necessarily the current owner or all contributors |
+| Row ages (Age, Updated) | Open PR age and time since update, shown rounded down: `<1h`; `Nh` for 1-23 hours; `Nd` for 1-89 days; `Nmo` for 90-364 days (whole days / 30, fixed 30-day months); `Ny` for 365 days or more (whole days / 365) | Coarser than the summary's exact day counts. Days run to 89 so the 7, 30 and 90 day bucket edges stay visible |
+| Review facts (rows) | `approvals N`, `changes requested N`, `pending requests N`, as defined above, with `(CODEOWNERS only)` when every pending request came from CODEOWNERS; `-` means none of these were observed | Approvals count reviewers' latest approving reviews; they do not establish that the PR is approved for merge. `-` is not "unreviewed" |
+| Listed rows | The oldest N open PRs of each section (non-draft, draft) by creation date, 20 by default (`--limit N`, `--all`) | A sample, not a trace: newer PRs behind a summary count may not be listed, and there is no way to select a summary category. The JSON has every PR |
 | Recently opened | PRs created in the 30 days before the reference time | Includes PRs already merged or closed |
 | Recently merged | PRs merged in the same window | Says nothing about how long they were open. A burst of merges near the window edge can move the count sharply from one day to the next |
 | Recently closed-unmerged | PRs closed without merge in the same window | Does not distinguish abandoned, superseded, or rejected work |
@@ -130,7 +135,10 @@ Do not pre-build abstractions for these. DORA and deployment work have no commit
 
 ## 6. Open decisions
 
-- A readable terminal layout for the per-PR rows when there are hundreds of PRs, including default detail-row limits. The summary block above them is built.
+None at the moment.
+
 **Decided (2026-09-30):** recent flow counts are part of the MVP report, alongside the backlog snapshot (section 3).
 
 **Decided (2026-10-01):** review facts cover non-draft PRs only; pending requests that come only from CODEOWNERS are shown separately; GitHub's review decision stays out of the summary.
+
+**Decided (2026-10-06):** the terminal lists the oldest open PRs in two sections, non-draft and draft, 20 rows each by default (`--limit N`, `--all`). It is a sample, not a trace of every summary count. Questions left for dogfooding: whether the one-line links template is too much friction, whether wide rows wrap badly on real titles, and whether leads want a filtered slice (for example approved PRs) instead of oldest first.

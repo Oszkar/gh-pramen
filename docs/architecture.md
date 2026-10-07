@@ -22,11 +22,11 @@ The useful boundary is **fetch → calculate → render**. Calculations are test
 | `main.go` | Flags, repository resolution, wiring, exit codes |
 | `fetch.go` | GraphQL queries, pagination, mapping API nodes to `PullRequest` |
 | `report.go` | Snapshot and report types, and `buildReport`, a pure function of the fetched facts and one reference time |
-| `render.go` | `writeJSON` and `writeSummary`; both only lay out what the report already contains |
+| `render.go` | `writeJSON` and `writeSummary`, plus the row formatting helpers; they only lay out what the report already contains |
 
-**Current state:** `--json` writes the full report. The default terminal output is the summary block only: repository and collection time, open backlog, recent flow, age distribution, and review facts for non-draft PRs. GitHub's review decision is deliberately not in the summary. It ends with a line saying that per-PR rows are only in the JSON. The layout of those rows is an open decision in the product doc and should be designed against real output.
+**Current state:** `--json` writes the full report. The terminal output is the summary block (repository and collection time, open backlog, recent flow, age distribution, and review facts for non-draft PRs) followed by two row sections: non-draft PRs with review facts, and draft PRs without. Each section is capped by `--limit` (default 20) or uncapped with `--all`, and the output has a Links line under the non-draft section header giving the PR URL pattern once. GitHub's review decision is deliberately not in the terminal output. The formatting helpers (humanized durations, review-facts text, author and title cleaning, rune-aligned columns) live in `render.go`. `--limit` and `--all` change only the display: every PR is always fetched and the JSON always has all of them.
 
-The summary is plain text with no color or terminal-width logic, so it reads the same when redirected. Counts are right-aligned within each block, and times are shown in UTC. `testdata/report.golden.txt` is a complete example.
+The terminal output is plain text with no color or terminal-width logic, so it reads the same when redirected. Counts are right-aligned within each block, and times are shown in UTC. `testdata/report.golden.txt` is a complete example.
 
 ## Data collection
 

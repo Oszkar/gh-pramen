@@ -15,6 +15,7 @@
             "updatedAt": "2024-11-02T16:30:00Z",
             "reviewDecision": null,
             "author": { "__typename": "User", "login": "alice" },
+            "commits": { "nodes": [ { "commit": { "statusCheckRollup": { "state": "SUCCESS" } } } ] },
             "reviewRequests": { "totalCount": 0, "nodes": [] },
             "latestOpinionatedReviews": { "totalCount": 0, "nodes": [] }
           },
@@ -28,6 +29,7 @@
             "updatedAt": "2026-09-01T10:00:00Z",
             "reviewDecision": null,
             "author": { "__typename": "User", "login": "bob" },
+            "commits": { "nodes": [ { "commit": { "statusCheckRollup": { "state": "FAILURE" } } } ] },
             "reviewRequests": {
               "totalCount": 2,
               "nodes": [ { "asCodeOwner": true }, { "asCodeOwner": false } ]
@@ -47,6 +49,7 @@
             "updatedAt": "2026-07-20T03:00:05Z",
             "reviewDecision": "REVIEW_REQUIRED",
             "author": { "__typename": "Bot", "login": "dependabot" },
+            "commits": { "nodes": [ { "commit": { "statusCheckRollup": null } } ] },
             "reviewRequests": {
               "totalCount": 1,
               "nodes": [ { "asCodeOwner": true } ]

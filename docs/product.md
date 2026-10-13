@@ -52,7 +52,8 @@ No separate `sync`, `cycle-time`, `reviews`, `size`, or `dora` commands initiall
 | Recent flow | PRs opened, merged, and closed without merge in the last 30 days; context for the backlog size |
 | Age distribution | Age buckets split by draft/non-draft |
 | Review state | Counts and PR lists of non-draft PRs by observed review facts (pending review requests, approvals, changes requested), with pending requests that come only from CODEOWNERS shown separately. GitHub's review decision is kept per PR in the JSON, not summarized |
-| PR details | The terminal lists the oldest non-draft and draft PRs in separate sections, capped per section, with age, time since update, review facts (non-draft), author and title. A focused view lists matching non-draft PRs instead. The JSON has every PR with full detail |
+| Checks | Counts of non-draft PRs by the check state of their head commit: success, failure or error, pending or expected, none reported, and other states only when present |
+| PR details | The terminal lists the oldest non-draft and draft PRs in separate sections, capped per section, with age, time since update, review facts and check state (non-draft), author and title. A focused view lists matching non-draft PRs instead. The JSON has every PR with full detail |
 
 Start with age buckets of **under 7 days, 7–29 days, 30–89 days, and 90+ days**. These help navigate the backlog; they are not performance targets.
 
@@ -87,12 +88,17 @@ Precise time waiting for review is deferred: it requires history and decisions a
 | `pending-requests` | Non-draft open PRs with one or more pending review requests | Includes requests created automatically from CODEOWNERS |
 | `changes-requested` | Non-draft open PRs with one or more reviewers whose latest opinionated review is a change request | May overlap with approvals and pending requests |
 | `no-review-facts` | Non-draft open PRs with no counted approvals, change requests, or pending requests | Does not mean no reviews; comment-only reviews are not counted |
+| Check state | GitHub's combined check state (`statusCheckRollup`) for the PR's head commit: `SUCCESS`, `FAILURE`, `ERROR`, `PENDING`, `EXPECTED`, as reported; rows show it in lower case | Head commit only: checks reported against another commit, such as a test merge commit, are not included. Includes optional checks, so `success` does not mean the PR can be merged and one failing optional check makes it `failure`. Does not say how long a state has lasted. It reflects what the active token can read: with gh's default login (`repo` scope) a missing state matched zero check runs and statuses, but tokens with narrower permissions were not tested |
+| Failure or error | Check state `FAILURE` or `ERROR` | As above |
+| Pending/expected | Check state `PENDING` or `EXPECTED` (a required status that has not been reported yet) | A state can stay pending for days. Some repositories keep a merge-bot status pending until the PR merges (in kubernetes, Prow's `tide` held 909 of 1,354 open PRs at pending), so pending can be the normal resting state rather than CI in progress |
+| None reported (checks) | GitHub reports no check state for the head commit; rows show `-` | Not "no CI": checks may not have been triggered, for example on fork PRs that wait for approval. A head commit GitHub does not return fails the run instead |
+| Other state | A check state GitHub reports that the tool does not know | Shown only when present; rows show it in lower case, or `?` when empty |
 | Clickable PR number | In an interactive terminal, each listed PR number links to its GitHub URL | Plain redirected output retains the URL pattern instead of terminal escape codes |
 | Recently opened | PRs created in the 30 days before the reference time | Includes PRs already merged or closed |
 | Recently merged | PRs merged in the same window | Says nothing about how long they were open. A burst of merges near the window edge can move the count sharply from one day to the next |
 | Recently closed-unmerged | PRs closed without merge in the same window | Does not distinguish abandoned, superseded, or rejected work |
 
-Do not label an absent review decision “unreviewed.” An empty decision says nothing about whether the PR was reviewed or whether the repository requires reviews. Distinguish “no decision reported” from unavailable data. Approval does not prove that checks, conflicts, policies, or other prerequisites permit merging.
+Do not label an absent review decision “unreviewed.” An empty decision says nothing about whether the PR was reviewed or whether the repository requires reviews. Distinguish “no decision reported” from unavailable data. Approval does not prove that checks, conflicts, policies, or other prerequisites permit merging. Likewise, do not read a `success` check state as "ready to merge" or "none reported" as "no CI".
 
 ### Essential correctness
 
@@ -150,3 +156,5 @@ None at the moment.
 **Decided (2026-10-06):** the terminal lists the oldest open PRs in two sections, non-draft and draft, 20 rows each by default (`--limit N`, `--all`). It is a sample, not a trace of every summary count.
 
 **Decided (2026-10-09):** four focused non-draft row views select PRs behind common summary facts without changing the summary or JSON. PR numbers become terminal hyperlinks on interactive stdout. Remaining dogfood questions: whether wide rows wrap badly on real titles and which focused slices leads actually use.
+
+**Decided (2026-10-13):** non-draft PRs show the head commit's check state, as a summary block and a row column; the JSON has it for every PR. It is fetched in the open-PR query at 50 PRs per page, because 100 per page returned HTTP 502 on kubernetes in two of three runs, and the fetch takes about twice as long as without it (see the [check state measurements](architecture.md#check-state-measurements-2026-10-13)). A run that cannot read the check state fails rather than reporting "none reported". Per-check detail and a failing-checks focus view are not included.

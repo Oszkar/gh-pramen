@@ -98,6 +98,18 @@ func writeSummary(w io.Writer, r Report, opts summaryOptions) error {
 		{"With none of these", rs.WithNoneOfThese},
 	})
 
+	cc := r.Checks
+	checkRows := []countRow{
+		{"Success", cc.Success},
+		{"Failure or error", cc.FailureOrError},
+		{"Pending/expected", cc.PendingOrExpected},
+		{"None reported", cc.NoneReported},
+	}
+	if cc.Other > 0 {
+		checkRows = append(checkRows, countRow{"Other state", cc.Other})
+	}
+	writeCounts(&b, fmt.Sprintf("Checks on the head commit of the %d non-draft pull requests", cc.NonDraft), checkRows)
+
 	if opts.focus != focusNone {
 		linksDone := false
 		writeRowSection(&b, opts.focus.label(), focusedRows(r.PullRequests, opts.focus), opts.rowLimit, true, &linksDone, opts.hyperlinks)
@@ -148,6 +160,19 @@ func humanDuration(seconds int64) string {
 
 // reviewFacts lists the observed review facts of a PR in one cell. Approvals
 // are reviewers' latest approving reviews, not an approval to merge.
+// checkLabel shows a check rollup state in lower case, "-" when no checks
+// are reported, and "?" for an empty state.
+func checkLabel(state *string) string {
+	switch {
+	case state == nil:
+		return "-"
+	case *state == "":
+		return "?"
+	default:
+		return cleanTitle(strings.ToLower(*state))
+	}
+}
+
 func reviewFacts(pr PullRequest) string {
 	var parts []string
 	if pr.Approvals > 0 {
@@ -287,14 +312,14 @@ func writeRowSection(b *strings.Builder, kind string, rows []Row, limit int, wit
 
 	header := []string{"#", "Age", "Updated", "Author", "Title"}
 	if withReview {
-		header = []string{"#", "Age", "Updated", "Review facts", "Author", "Title"}
+		header = []string{"#", "Age", "Updated", "Review facts", "Checks", "Author", "Title"}
 	}
 	cells := make([][]string, 0, len(shown))
 	links := make([]string, 0, len(shown))
 	for _, row := range shown {
 		cell := []string{strconv.Itoa(row.Number), humanDuration(row.AgeSeconds), humanDuration(row.SecondsSinceUpdate)}
 		if withReview {
-			cell = append(cell, reviewFacts(row.PullRequest))
+			cell = append(cell, reviewFacts(row.PullRequest), checkLabel(row.CheckState))
 		}
 		cell = append(cell, authorLabel(row.Author), cleanTitle(row.Title))
 		cells = append(cells, cell)

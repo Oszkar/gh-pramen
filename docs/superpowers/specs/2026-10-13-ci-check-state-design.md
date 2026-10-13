@@ -1,85 +1,109 @@
-# CI check state on open PRs — design
+# CI check state on open PRs: design
 
-Date: 2026-10-13. Status: approved design, implementation pending.
+Date: 2026-10-13. Status: approved design, revised after review, implemented on `feat/ci-check-state`. Spike result: 50 per page (100 per page returned HTTP 502 on kubernetes in two of three runs).
 
 ## Goal
 
-Show each open PR's CI state as an observed fact, and summarize it for non-draft PRs, without making the run fail more often or hiding missing data.
+Show each open PR's head-commit check state as an observed fact, and summarize it for non-draft PRs. Never let unreadable or missing check data look like "no checks". A run that cannot read the check state fails clearly instead.
+
+This adds a requirement. A credential that can read pull requests but not checks used to succeed and now fails with GitHub's error. That is deliberate. The alternative would be degrading silently to "none reported", and the guardrails forbid that.
 
 ## Scope
 
-- Per PR in the JSON (every PR, drafts included): the head commit's check rollup state.
-- Summary block in the terminal: counts for non-draft PRs only.
-- Row column in the non-draft section and in focused lists. Draft rows are unchanged.
-- Out of scope: per-check names or conclusions, a `--focus` view for failing checks, how long a check has been pending, required versus optional checks.
+- In the JSON, for every PR including drafts: the head commit's check rollup state.
+- In the terminal summary: counts for non-draft PRs only.
+- A row column in the non-draft section and in focused lists. Draft rows are unchanged.
+- Out of scope: per-check names or conclusions, a `--focus` view for failing checks, how long a check has been pending, required versus optional checks, and a flag that skips check state.
 
 ## Definitions
 
-Source: `statusCheckRollup.state` on the PR's head commit (`commits(last: 1)`), GitHub's combined state of all check runs and commit statuses on that commit.
+Source: `commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }` on each PR. This is the same path `gh pr view --json statusCheckRollup` uses. In the spike, the returned commit matched `headRefOid` on every PR.
 
 | Term | Definition | Limitation |
 |---|---|---|
-| Check state (JSON `checkState`) | GitHub's rollup state, as reported: `SUCCESS`, `FAILURE`, `ERROR`, `PENDING`, `EXPECTED`, or `null` when no checks are reported | Head commit only. Includes optional checks. `SUCCESS` does not mean the PR can be merged |
-| Success | Rollup state `SUCCESS` | As above |
-| Failure or error | Rollup state `FAILURE` or `ERROR` | One failing optional check is enough |
-| Pending/expected | Rollup state `PENDING` or `EXPECTED` | Says nothing about how long the state has lasted |
-| None reported | No rollup on the head commit | Not "no CI": checks may not have been triggered, for example on fork PRs that wait for approval |
+| Check state (JSON `checkState`) | GitHub's rollup state as reported (`SUCCESS`, `FAILURE`, `ERROR`, `PENDING`, `EXPECTED`), or `null` when no rollup is reported on a head commit GitHub returned | Head commit only: checks reported against another commit, such as a test merge commit, are not included. Includes optional checks. `SUCCESS` does not mean the PR can be merged |
+| Success | `SUCCESS` | As above |
+| Failure or error | `FAILURE` or `ERROR` | One failing optional check is enough |
+| Pending/expected | `PENDING` or `EXPECTED` | Says nothing about how long the state has lasted. A merge-bot status (kubernetes' `tide`) can hold a PR at pending until it merges |
+| None reported | Explicit `null` rollup on a head commit GitHub returned | Not "no CI": checks may not have been triggered, for example on fork PRs that wait for approval |
+| Other state | Any other value, including an empty string | Shown in the terminal only when present |
+
+### Response shapes (review finding 5)
+
+| Shape | Behavior |
+|---|---|
+| `commits` with one node, non-null `commit`, non-null rollup | `checkState` = the state string, as reported |
+| Same, with `statusCheckRollup: null` | `checkState: null` (none reported) |
+| `commits` null, `nodes` empty, or `commit` null | The run fails: "could not read the head commit of pull request #N" |
+| Any GraphQL `errors`, including partial data | The run fails with GitHub's message (`go-gh` returns a `GraphQLError` whenever `errors` is non-empty) |
+
+### Unexpected values (review finding 6)
+
+This follows the existing `DecisionCounts.Other` precedent. An unknown or empty state goes into `other`, so the buckets still add up to `nonDraft`. JSON always has `other`. The terminal shows an "Other state" line only when it is non-zero. Rows show the state in lower case, or `?` when it is empty, with control characters stripped.
 
 ## Output
 
-Terminal summary, after the review facts block:
+The terminal summary gets a new block after the review facts block:
 
 ```
-Checks on head commit (non-draft)
-  Success            12
-  Failure or error    4
-  Pending/expected    2
-  None reported       3
+Checks on the head commit of the 4 non-draft pull requests
+  Success           1
+  Failure or error  1
+  Pending/expected  1
+  None reported     1
 ```
 
-The four lines are mutually exclusive and add up to the non-draft total. Counts are right-aligned like the other blocks.
-
-Rows: a `Checks` column after `Review facts`, showing the lowercase state (`success`, `failure`, `error`, `pending`, `expected`) or `-` when none is reported.
+Rows get a `Checks` column after `Review facts`.
 
 JSON:
 
-- `pullRequests[].checkState`: string or `null`.
-- A new summary object `checkState` with `nonDraft`, `success`, `failureOrError`, `pendingOrExpected` and `noneReported`, all always present.
-- `schemaVersion` stays 1, because no existing field changes meaning.
+- `pullRequests[].checkState`: a string or `null`.
+- A summary object `checks` with `nonDraft`, `success`, `failureOrError`, `pendingOrExpected`, `noneReported` and `other`, always present.
+- `schemaVersion` stays 1, because the fields are additive.
 
-## Step 0: spike (gates implementation)
+## Spike (review findings 1, 3, 4, 8)
 
-Run with `gh api graphql` before changing code:
+Method:
+- Each run fetches every page of open PRs with `gh api graphql --paginate`, with `rateLimit { cost }` added.
+- A run passes only if `gh` exits 0 and no page has `errors`.
+- The variants are the current query at 100 per page (baseline), and the query with the rollup at 100, 50 and 25 per page.
+- Every variant runs three times on astral-sh/ruff, kubernetes/kubernetes and the private work repo.
 
-1. Use the current open-PRs query plus `commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`, together with `rateLimit { cost }`.
-2. Try page sizes 100, 50 and 25 on ruff, kubernetes and the private work repo (with the work account's token). Record success or failure, wall time, and cost.
-3. Check the permission case: with a token that cannot read checks, record whether GitHub returns an error or a `null` rollup.
+Page-size rule: choose the largest size that passed every run on every repository. Repeated full runs are the margin, so the old "one step smaller" rule is dropped. If no size passes, stop and revisit the design (a separate query batched by node ID). Results and the chosen size are in `docs/architecture.md` under "Check state measurements".
 
-Decisions from the spike:
+Head commit (finding 8): for every PR in every passing run with the rollup, compare `commits(last: 1)` with `headRefOid`.
 
-- Page size: the largest size that passed on all three repositories, one step smaller for margin. If only sizes below 25 work, stop and revisit the design (a separate batched query by node ID).
-- If missing permission produces a silent `null`, stop. Either find a field that tells "no access" apart from "no checks", or the feature does not ship. "None reported" must never stand in for unavailable data.
-
-Record the public results in the "Spike findings" section of `docs/architecture.md`. Work-repo names and numbers go only in `NOTES.local.md`.
+Permissions (finding 1):
+- **Verified:** with gh's default OAuth login (`repo` scope, both accounts on this machine), a `null` rollup matched zero check runs and zero commit statuses through REST on sampled PRs, and a `SUCCESS` control PR had check runs.
+- **Not verified:** fine-grained PATs, GitHub App and Actions tokens with narrower permissions. Neither available token can create that condition, so whether they error, return null, or return a partial rollup is unknown.
+- This limitation is documented in `docs/product.md`. Before relying on such tokens, run the same commit through a full-access token and a restricted token, and compare.
+- A partial rollup (statuses visible, check runs hidden) cannot be detected from the rollup alone. This is documented, not solved.
 
 ## Implementation
 
-Follow the existing fetch → calculate → render boundary. No new packages or dependencies.
+- `fetch.go`: `openPRsPageSize` is passed as `$first`. The rollup is added to the query and mapped per the response-shape table. HTTP 502 and 504 add a "GitHub may have timed out" hint, and other errors do not.
+- `report.go`: `PullRequest.CheckState`, plus `CheckCounts` filled from non-draft PRs.
+- `render.go`: the summary block, the `Checks` column, and `checkLabel`.
 
-- `fetch.go`: add the nested field to `openPRsQuery`, and set the page size from a named constant chosen by the spike. Map the rollup to `PullRequest.CheckState` (`*string`). A failed page, including HTTP 502, still fails the run with the repository and the underlying error. A 502 message adds a hint that GitHub may have timed out on a large page.
-- `report.go`: `buildReport` fills the `checkState` summary from non-draft PRs.
-- `render.go`: the summary block and the `Checks` row column. It lays out only what the report contains.
+## Tests (review finding 7)
 
-## Tests (written first)
+- Fetch tests:
+  - The query requests the rollup, and `first` equals `openPRsPageSize`.
+  - Every state maps to `CheckState`, including on a draft and an explicit null.
+  - An unknown state is kept as reported.
+  - A missing head commit fails in three shapes: `commits` null, `nodes` empty, `commit` null.
+  - Partial data with a FORBIDDEN error on the rollup path fails without returning PRs.
+  - A 502 carries the hint and keeps the repository and status; a 401 has no hint.
+- `buildReport`: every bucket, drafts excluded, unknown and empty states in `other`, buckets add up to `nonDraft`.
+- Render: the summary block, the Other line only when non-zero, `checkLabel`, the column on non-draft rows only, and a focused view that keeps the block and the column.
+- Golden JSON and text are updated by hand. Zero-valued `checks.other` is present in the golden JSON.
 
-- Fixtures in `testdata/` that cover every rollup state, including `null`.
-- `buildReport` table test: bucket counts per state, drafts excluded, buckets add up to `nonDraft`.
-- Fetch test: the query requests the rollup, and the page size matches the constant.
-- Render tests: the summary block, and the row column including `-`.
-- Golden files `testdata/report.golden.json` and `testdata/report.golden.txt` updated by hand.
+## Docs (review finding 9)
 
-## Docs
-
-- `docs/product.md`: the definitions above, the outputs table row, and a dated decision (2026-10-13).
-- `docs/architecture.md`: the schema table, the data-collection description, the page size, and replacing "Avoid … check status in the bulk query" with the measured result.
-- `README.md`: the new summary block and row column.
+- `docs/product.md`: definitions, the one-report table, and a decision dated 2026-10-13.
+- `docs/architecture.md`:
+  - The schema table, data collection, and response-shape behavior.
+  - The "avoid commits / check status" guidance is replaced with the measured result.
+  - Measurements and the fixture list.
+- `fetch.go`: the query comment now leaves out only merge-conflict status.
+- `README.md`: the example output and the parts table.

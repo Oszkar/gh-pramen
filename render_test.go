@@ -320,8 +320,8 @@ func TestWriteSummaryAlignsRowsByRuneCount(t *testing.T) {
 
 	got := summaryOf(t, []PullRequest{a, b}, Flow{})
 
-	if !strings.Contains(got, "   1  3d   3d       -             élodie  x\n") ||
-		!strings.Contains(got, "  10  2d   2d       -             bob     y\n") {
+	if !strings.Contains(got, "   1  3d   3d       -             -       élodie  x\n") ||
+		!strings.Contains(got, "  10  2d   2d       -             -       bob     y\n") {
 		t.Errorf("rows are not aligned by rune count; got:\n%s", got)
 	}
 }
@@ -402,5 +402,82 @@ func TestTerminalHyperlinksRejectUnsafeURL(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "Links:") {
 		t.Errorf("unsafe URL reached terminal output: %q", out.String())
+	}
+}
+
+func TestWriteSummaryShowsCheckCountsForNonDraftPRs(t *testing.T) {
+	prs := []PullRequest{numberedPR(1, day, false), numberedPR(2, day, false), numberedPR(3, day, true)}
+	prs[0].CheckState = strPtr("FAILURE")
+	prs[2].CheckState = strPtr("FAILURE")
+
+	got := summaryOf(t, prs, Flow{})
+
+	want := "\nChecks on the head commit of the 2 non-draft pull requests\n" +
+		"  Success           0\n" +
+		"  Failure or error  1\n" +
+		"  Pending/expected  0\n" +
+		"  None reported     1\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("summary missing check block %q:\n%s", want, got)
+	}
+	if strings.Contains(got, "  Other") {
+		t.Errorf("summary shows an Other line with nothing in it:\n%s", got)
+	}
+}
+
+func TestWriteSummaryShowsOtherCheckStatesOnlyWhenPresent(t *testing.T) {
+	pr := numberedPR(1, day, false)
+	pr.CheckState = strPtr("SOMETHING_NEW")
+
+	got := summaryOf(t, []PullRequest{pr}, Flow{})
+
+	if !strings.Contains(got, "  Other state       1\n") {
+		t.Errorf("summary missing Other state line:\n%s", got)
+	}
+}
+
+func TestCheckLabel(t *testing.T) {
+	for state, want := range map[string]string{
+		"SUCCESS": "success", "FAILURE": "failure", "ERROR": "error",
+		"PENDING": "pending", "EXPECTED": "expected", "SOMETHING_NEW": "something_new", "": "?",
+	} {
+		if got := checkLabel(&state); got != want {
+			t.Errorf("checkLabel(%q) = %q, want %q", state, got, want)
+		}
+	}
+	if got := checkLabel(nil); got != "-" {
+		t.Errorf("checkLabel(nil) = %q, want -", got)
+	}
+}
+
+func TestWriteSummaryShowsChecksColumnOnNonDraftRowsOnly(t *testing.T) {
+	nonDraft := numberedPR(1, day, false)
+	nonDraft.CheckState = strPtr("PENDING")
+	draft := numberedPR(2, day, true)
+	draft.CheckState = strPtr("SUCCESS")
+
+	got := summaryOf(t, []PullRequest{nonDraft, draft}, Flow{})
+
+	if !strings.Contains(got, "#  Age  Updated  Review facts  Checks   Author  Title\n") ||
+		!strings.Contains(got, "1  1d   1d       -             pending  ghost   Title 1\n") {
+		t.Errorf("non-draft rows missing Checks column:\n%s", got)
+	}
+	if !strings.Contains(got, "#  Age  Updated  Author  Title\n") || strings.Contains(got, "success") {
+		t.Errorf("draft rows changed:\n%s", got)
+	}
+}
+
+func TestWriteSummaryFocusKeepsCheckBlockAndColumn(t *testing.T) {
+	pr := numberedPR(1, 100*day, false)
+	pr.CheckState = strPtr("SUCCESS")
+	var out bytes.Buffer
+	r := buildReport("acme/widgets", []PullRequest{pr}, Flow{}, testNow)
+	if err := writeSummary(&out, r, summaryOptions{rowLimit: 20, focus: focusOldNonDraft}); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Checks on the head commit of the 1 non-draft pull requests") ||
+		!strings.Contains(got, "Checks") || !strings.Contains(got, "success") {
+		t.Errorf("focused view missing check block or column:\n%s", got)
 	}
 }

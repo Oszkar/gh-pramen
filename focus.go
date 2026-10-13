@@ -13,15 +13,16 @@ const (
 	focusPendingRequests  focusKind = "pending-requests"
 	focusChangesRequested focusKind = "changes-requested"
 	focusNoReviewFacts    focusKind = "no-review-facts"
+	focusFailingChecks    focusKind = "failing-checks"
 )
 
 func parseFocus(s string) (focusKind, error) {
 	focus := focusKind(s)
 	switch focus {
-	case focusNone, focusOldNonDraft, focusPendingRequests, focusChangesRequested, focusNoReviewFacts:
+	case focusNone, focusOldNonDraft, focusPendingRequests, focusChangesRequested, focusNoReviewFacts, focusFailingChecks:
 		return focus, nil
 	default:
-		return focusNone, fmt.Errorf("invalid --focus %q; choose old-non-draft, pending-requests, changes-requested, or no-review-facts", s)
+		return focusNone, fmt.Errorf("invalid --focus %q; choose old-non-draft, pending-requests, changes-requested, no-review-facts, or failing-checks", s)
 	}
 }
 
@@ -43,6 +44,8 @@ func focusedRows(rows []Row, focus focusKind) []Row {
 			match = row.ChangesRequested > 0
 		case focusNoReviewFacts:
 			match = row.Approvals == 0 && row.ChangesRequested == 0 && row.PendingReviewRequests == 0
+		case focusFailingChecks:
+			match = row.CheckState != nil && (*row.CheckState == "FAILURE" || *row.CheckState == "ERROR")
 		}
 		if match {
 			selected = append(selected, row)
@@ -61,6 +64,8 @@ func (f focusKind) label() string {
 		return "non-draft, with changes requested"
 	case focusNoReviewFacts:
 		return "non-draft, with none of the listed review facts"
+	case focusFailingChecks:
+		return "non-draft, with failing checks on the head commit"
 	default:
 		return ""
 	}

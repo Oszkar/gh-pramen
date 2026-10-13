@@ -334,8 +334,12 @@ func TestFocusedRowsUseExistingFactsAndKeepOldestFirst(t *testing.T) {
 		numberedPR(4, 100*day, false),
 	}
 	prs[2].PendingReviewRequests = 1
+	prs[2].CheckState = strPtr("ERROR")
 	prs[3].ChangesRequested = 1
 	prs[3].PendingReviewRequests = 1
+	prs[3].CheckState = strPtr("FAILURE")
+	prs[0].CheckState = strPtr("FAILURE")
+	prs[1].CheckState = strPtr("PENDING")
 	rows := buildReport("acme/widgets", prs, Flow{}, testNow).PullRequests
 	tests := []struct {
 		focus focusKind
@@ -345,6 +349,7 @@ func TestFocusedRowsUseExistingFactsAndKeepOldestFirst(t *testing.T) {
 		{focusPendingRequests, []int{4, 3}},
 		{focusChangesRequested, []int{4}},
 		{focusNoReviewFacts, []int{2}},
+		{focusFailingChecks, []int{4, 3}},
 	}
 	for _, tt := range tests {
 		selected := focusedRows(rows, tt.focus)

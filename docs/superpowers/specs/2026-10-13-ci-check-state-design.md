@@ -13,7 +13,7 @@ This adds a requirement. A credential that can read pull requests but not checks
 - In the JSON, for every PR including drafts: the head commit's check rollup state.
 - In the terminal summary: counts for non-draft PRs only.
 - A row column in the non-draft section and in focused lists. Draft rows are unchanged.
-- Out of scope: per-check names or conclusions, a `--focus` view for failing checks, how long a check has been pending, required versus optional checks, and a flag that skips check state.
+- Out of scope: per-check names or conclusions, a `--focus` view for failing checks (added in a follow-up PR as `failing-checks`), how long a check has been pending, required versus optional checks, and a flag that skips check state.
 
 ## Definitions
 

@@ -407,3 +407,23 @@ func TestRunRejectsUnknownFocusBeforeAnyRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestRunFocusFailingChecksListsFailedHeadCommits(t *testing.T) {
+	tr := newTestRun(t, fixture(t, "open_prs_page1.json"), fixture(t, "open_prs_page2.json"), fixture(t, "flow.json"))
+
+	code := run([]string{"-R", "acme/widgets", "--focus", "failing-checks"}, tr.env)
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr: %s", code, tr.stderr.String())
+	}
+	got := tr.stdout.String()
+	if !strings.Contains(got, "Open pull requests, non-draft, with failing checks on the head commit (1, oldest first by creation date)") ||
+		!strings.Contains(got, "Add retry to the sync job") {
+		t.Errorf("focused report missing the failing PR:\n%s", got)
+	}
+	for _, unwanted := range []string{"Rework the import pipeline", "Backport the cache fix", "Fix typo in the README"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("focused report contains %q:\n%s", unwanted, got)
+		}
+	}
+}

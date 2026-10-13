@@ -39,7 +39,7 @@ gh pramen -R owner/repo --all        # every row
 gh pramen -R owner/repo --focus pending-requests
 ```
 
-Produce a terminal report by default and structured JSON for inspecting or reusing results. Plain output remains readable when redirected. Progress/errors go to stderr. `--focus` replaces the two usual row sections with one factual list of non-draft PRs, using one of `old-non-draft`, `pending-requests`, `changes-requested`, or `no-review-facts`. The summary still covers all PRs. `--limit` and `--all` apply to the focused list; `--json` remains the complete report regardless of focus.
+Produce a terminal report by default and structured JSON for inspecting or reusing results. Plain output remains readable when redirected. Progress/errors go to stderr. `--focus` replaces the two usual row sections with one factual list of non-draft PRs, using one of `old-non-draft`, `pending-requests`, `changes-requested`, `no-review-facts`, or `failing-checks`. The summary still covers all PRs. `--limit` and `--all` apply to the focused list; `--json` remains the complete report regardless of focus.
 
 No separate `sync`, `cycle-time`, `reviews`, `size`, or `dora` commands initially.
 
@@ -88,6 +88,7 @@ Precise time waiting for review is deferred: it requires history and decisions a
 | `pending-requests` | Non-draft open PRs with one or more pending review requests | Includes requests created automatically from CODEOWNERS |
 | `changes-requested` | Non-draft open PRs with one or more reviewers whose latest opinionated review is a change request | May overlap with approvals and pending requests |
 | `no-review-facts` | Non-draft open PRs with no counted approvals, change requests, or pending requests | Does not mean no reviews; comment-only reviews are not counted |
+| `failing-checks` | Non-draft open PRs whose head-commit check state is `FAILURE` or `ERROR` | Same PRs as the summary's "Failure or error" count. One failing optional check is enough; does not say which check failed |
 | Check state | GitHub's combined check state (`statusCheckRollup`) for the PR's head commit: `SUCCESS`, `FAILURE`, `ERROR`, `PENDING`, `EXPECTED`, as reported; rows show it in lower case | Head commit only: checks reported against another commit, such as a test merge commit, are not included. Includes optional checks, so `success` does not mean the PR can be merged and one failing optional check makes it `failure`. Does not say how long a state has lasted. It reflects what the active token can read: with gh's default login (`repo` scope) a missing state matched zero check runs and statuses, but tokens with narrower permissions were not tested |
 | Failure or error | Check state `FAILURE` or `ERROR` | As above |
 | Pending/expected | Check state `PENDING` or `EXPECTED` (a required status that has not been reported yet) | A state can stay pending for days. Some repositories keep a merge-bot status pending until the PR merges (in kubernetes, Prow's `tide` held 909 of 1,354 open PRs at pending), so pending can be the normal resting state rather than CI in progress |
@@ -157,4 +158,6 @@ None at the moment.
 
 **Decided (2026-10-09):** four focused non-draft row views select PRs behind common summary facts without changing the summary or JSON. PR numbers become terminal hyperlinks on interactive stdout. Remaining dogfood questions: whether wide rows wrap badly on real titles and which focused slices leads actually use.
 
-**Decided (2026-10-13):** non-draft PRs show the head commit's check state, as a summary block and a row column; the JSON has it for every PR. It is fetched in the open-PR query at 50 PRs per page, because 100 per page returned HTTP 502 on kubernetes in two of three runs, and the fetch takes about twice as long as without it (see the [check state measurements](architecture.md#check-state-measurements-2026-10-13)). A run that cannot read the check state fails rather than reporting "none reported". Per-check detail and a failing-checks focus view are not included.
+**Decided (2026-10-13):** non-draft PRs show the head commit's check state, as a summary block and a row column; the JSON has it for every PR. It is fetched in the open-PR query at 50 PRs per page, because 100 per page returned HTTP 502 on kubernetes in two of three runs, and the fetch takes about twice as long as without it (see the [check state measurements](architecture.md#check-state-measurements-2026-10-13)). A run that cannot read the check state fails rather than reporting "none reported". Per-check detail is not included.
+
+**Decided (2026-10-13):** `--focus failing-checks` lists the non-draft PRs behind the "Failure or error" count, so leads can open them without `jq`.

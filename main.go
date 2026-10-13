@@ -46,7 +46,8 @@ Flags:
       --all                      Show every row in the terminal report
       --focus VIEW               Show one focused list instead of the usual two sections:
                                  old-non-draft, pending-requests,
-                                 changes-requested, no-review-facts
+                                 changes-requested, no-review-facts,
+                                 failing-checks
       --json                     Write the full report as JSON, including every pull request
 
 --limit, --all, and --focus only change what the terminal shows. Every pull

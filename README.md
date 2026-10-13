@@ -100,6 +100,7 @@ The terminal normally lists the oldest PRs of each section. Use `--focus` to rep
 | `pending-requests` | Open non-draft PRs with one or more pending review requests |
 | `changes-requested` | Open non-draft PRs with one or more reviewers whose latest opinionated review requests changes |
 | `no-review-facts` | Open non-draft PRs with no approvals, change requests, or pending requests reported |
+| `failing-checks` | Open non-draft PRs whose head commit's check state is `failure` or `error` |
 
 The summary counts still cover the whole repository. `--limit` caps the focused list (default 20); `--all` shows every match. `--json` always contains every open PR and ignores a valid `--focus`. Invalid view names are usage errors. “No review facts” does not mean “unreviewed”; comment-only reviews are not counted. When stdout is an interactive terminal, PR numbers are clickable links. Redirected output stays plain text and retains the `Links:` URL pattern.
 

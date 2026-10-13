@@ -10,11 +10,13 @@ import (
 
 	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/cli/go-gh/v2/pkg/repository"
+	"golang.org/x/term"
 )
 
 // env holds what run needs from the outside world, so tests can replace it.
 type env struct {
 	stdout, stderr io.Writer
+	hyperlinks     bool
 	now            func() time.Time
 	currentRepo    func() (repository.Repository, error)
 	newClient      func(host string) (graphQLClient, error)
@@ -24,6 +26,7 @@ func main() {
 	os.Exit(run(os.Args[1:], env{
 		stdout:      os.Stdout,
 		stderr:      os.Stderr,
+		hyperlinks:  term.IsTerminal(int(os.Stdout.Fd())) && os.Getenv("TERM") != "dumb",
 		now:         time.Now,
 		currentRepo: repository.Current,
 		newClient: func(host string) (graphQLClient, error) {
@@ -41,16 +44,19 @@ Flags:
   -R, --repo [HOST/]OWNER/REPO   Repository to report on (default: the current repository)
       --limit N                  Rows shown per section in the terminal report (default 20)
       --all                      Show every row in the terminal report
+      --focus VIEW               Show one focused list instead of the usual two sections:
+                                 old-non-draft, pending-requests,
+                                 changes-requested, no-review-facts
       --json                     Write the full report as JSON, including every pull request
 
---limit and --all only change what the terminal shows; every pull request is
-always fetched, so they do not make the command faster.
+--limit, --all, and --focus only change what the terminal shows. Every pull
+request is always fetched, and --json always contains the full report.
 `
 
 // run executes the command and returns its exit code. The report goes to
 // stdout; progress and errors go to stderr.
 func run(args []string, e env) int {
-	var repoFlag string
+	var repoFlag, focusFlag string
 	var asJSON, all bool
 	var limit int
 	fs := flag.NewFlagSet("gh pramen", flag.ContinueOnError)
@@ -61,6 +67,7 @@ func run(args []string, e env) int {
 	fs.BoolVar(&asJSON, "json", false, "")
 	fs.IntVar(&limit, "limit", defaultRowLimit, "")
 	fs.BoolVar(&all, "all", false, "")
+	fs.StringVar(&focusFlag, "focus", "", "")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -88,19 +95,25 @@ func run(args []string, e env) int {
 		fs.Usage()
 		return 2
 	}
+	focus, err := parseFocus(focusFlag)
+	if err != nil {
+		fmt.Fprintln(e.stderr, err)
+		fs.Usage()
+		return 2
+	}
 	rowLimit := limit
 	if all {
 		rowLimit = 0
 	}
 
-	if err := report(repoFlag, asJSON, rowLimit, e); err != nil {
+	if err := report(repoFlag, asJSON, rowLimit, focus, e); err != nil {
 		fmt.Fprintln(e.stderr, err)
 		return 1
 	}
 	return 0
 }
 
-func report(repoFlag string, asJSON bool, rowLimit int, e env) error {
+func report(repoFlag string, asJSON bool, rowLimit int, focus focusKind, e env) error {
 	repo, err := resolveRepo(repoFlag, e)
 	if err != nil {
 		return err
@@ -128,7 +141,7 @@ func report(repoFlag string, asJSON bool, rowLimit int, e env) error {
 	if asJSON {
 		return writeJSON(e.stdout, r)
 	}
-	return writeSummary(e.stdout, r, rowLimit)
+	return writeSummary(e.stdout, r, summaryOptions{rowLimit: rowLimit, focus: focus, hyperlinks: e.hyperlinks})
 }
 
 func resolveRepo(repoFlag string, e env) (repository.Repository, error) {

@@ -348,7 +348,7 @@ func TestRunRejectsBadRowFlagsBeforeAnyRequest(t *testing.T) {
 }
 
 func TestRunJSONIgnoresValidRowFlags(t *testing.T) {
-	for _, extra := range [][]string{{"--limit", "1"}, {"--all"}} {
+	for _, extra := range [][]string{{"--limit", "1"}, {"--all"}, {"--focus", "pending-requests"}} {
 		tr := newTestRun(t, fixture(t, "open_prs_page1.json"), fixture(t, "open_prs_page2.json"), fixture(t, "flow.json"))
 
 		code := run(append([]string{"-R", "acme/widgets", "--json"}, extra...), tr.env)
@@ -359,6 +359,49 @@ func TestRunJSONIgnoresValidRowFlags(t *testing.T) {
 		}
 		if code != 0 || tr.stdout.String() != string(want) {
 			t.Errorf("run with %v: exit %d, stdout differs from the golden JSON", extra, code)
+		}
+	}
+}
+
+func TestRunFocusSelectsOneTerminalList(t *testing.T) {
+	tr := newTestRun(t, fixture(t, "open_prs_page1.json"), fixture(t, "open_prs_page2.json"), fixture(t, "flow.json"))
+
+	code := run([]string{"-R", "acme/widgets", "--focus", "pending-requests", "--limit", "1"}, tr.env)
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr: %s", code, tr.stderr.String())
+	}
+	got := tr.stdout.String()
+	for _, want := range []string{
+		"  Total      5\n",
+		"Open pull requests, non-draft, with pending review requests (showing 1 of 2, oldest first by creation date)",
+		"Add retry to the sync job",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("focused report missing %q:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"Bump left-pad", "Backport the cache fix", "Open pull requests, draft ("} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("focused report contains %q:\n%s", unwanted, got)
+		}
+	}
+}
+
+func TestRunRejectsUnknownFocusBeforeAnyRequest(t *testing.T) {
+	for _, args := range [][]string{
+		{"-R", "acme/widgets", "--focus", "stale"},
+		{"-R", "acme/widgets", "--json", "--focus", "stale"},
+	} {
+		tr := newTestRun(t)
+		if code := run(args, tr.env); code != 2 {
+			t.Errorf("run(%v) exit code = %d, want 2", args, code)
+		}
+		if len(tr.fake.variables) != 0 || tr.stdout.Len() != 0 {
+			t.Errorf("run(%v) fetched data or wrote stdout", args)
+		}
+		if !strings.Contains(tr.stderr.String(), "invalid --focus") {
+			t.Errorf("run(%v) stderr = %q", args, tr.stderr.String())
 		}
 	}
 }

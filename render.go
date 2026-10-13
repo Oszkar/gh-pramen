@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -57,10 +58,15 @@ func writeAgeDistribution(b *strings.Builder, buckets []AgeBucket) {
 	}
 }
 
-// writeSummary writes the plain-text summary of the report. It only lays
-// out what the report already contains. rowLimit is the most rows shown per
-// section, 0 for all.
-func writeSummary(w io.Writer, r Report, rowLimit int) error {
+type summaryOptions struct {
+	rowLimit   int
+	focus      focusKind
+	hyperlinks bool
+}
+
+// writeSummary writes the terminal summary. A focus changes only the listed
+// rows, not the summary counts or the complete report.
+func writeSummary(w io.Writer, r Report, opts summaryOptions) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Repository  %s\n", r.Repository)
 	fmt.Fprintf(&b, "Collected   %s\n", r.CollectedAt.Format(timeLayout))
@@ -92,6 +98,13 @@ func writeSummary(w io.Writer, r Report, rowLimit int) error {
 		{"With none of these", rs.WithNoneOfThese},
 	})
 
+	if opts.focus != focusNone {
+		linksDone := false
+		writeRowSection(&b, opts.focus.label(), focusedRows(r.PullRequests, opts.focus), opts.rowLimit, true, &linksDone, opts.hyperlinks)
+		_, err := io.WriteString(w, b.String())
+		return err
+	}
+
 	var nonDraft, draft []Row
 	for _, row := range r.PullRequests {
 		if row.IsDraft {
@@ -101,8 +114,8 @@ func writeSummary(w io.Writer, r Report, rowLimit int) error {
 		}
 	}
 	linksDone := false
-	writeRowSection(&b, "non-draft", nonDraft, rowLimit, true, &linksDone)
-	writeRowSection(&b, "draft", draft, rowLimit, false, &linksDone)
+	writeRowSection(&b, "non-draft", nonDraft, opts.rowLimit, true, &linksDone, opts.hyperlinks)
+	writeRowSection(&b, "draft", draft, opts.rowLimit, false, &linksDone, opts.hyperlinks)
 
 	_, err := io.WriteString(w, b.String())
 	return err
@@ -194,45 +207,65 @@ func truncateRunes(s string, n int) string {
 // --all says otherwise.
 const defaultRowLimit = 20
 
-// writeTable writes rows as aligned columns. The first column is
-// right-aligned, the last is not padded, and widths count runes, not bytes.
-func writeTable(b *strings.Builder, header []string, rows [][]string) {
+// writeTable writes rows as aligned columns. Links wrap only the PR number,
+// after widths have been calculated from plain text.
+func writeTable(b *strings.Builder, header []string, rows [][]string, links []string, hyperlinks bool) {
 	widths := make([]int, len(header))
 	for _, row := range append([][]string{header}, rows...) {
 		for i, cell := range row {
 			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
 		}
 	}
-	line := func(row []string) {
+	line := func(row []string, link string) {
 		cells := make([]string, len(row))
 		for i, cell := range row {
 			if i == 0 {
 				cells[i] = fmt.Sprintf("%*s", widths[i], cell)
+				if hyperlinks && link != "" {
+					padding := strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell))
+					cells[i] = padding + terminalLink(cell, link)
+				}
 			} else {
 				cells[i] = fmt.Sprintf("%-*s", widths[i], cell)
 			}
 		}
 		fmt.Fprintf(b, "  %s\n", strings.TrimRight(strings.Join(cells, "  "), " "))
 	}
-	line(header)
-	for _, row := range rows {
-		line(row)
+	line(header, "")
+	for i, row := range rows {
+		line(row, links[i])
 	}
 }
 
-// linksLine derives the URL pattern for PR links from one PR's URL, or
-// reports false when the URL does not end in the PR number.
-func linksLine(row Row) (string, bool) {
+func terminalLink(label, target string) string {
+	const start = "\x1b]8;;"
+	const end = "\x1b\\"
+	return start + target + end + label + start + end
+}
+
+// pullRequestURL accepts only a well-formed HTTPS URL ending in this PR's
+// number before using it in a terminal escape sequence or link template.
+func pullRequestURL(row Row) string {
 	number := strconv.Itoa(row.Number)
-	if !strings.HasSuffix(row.URL, "/"+number) {
+	parsed, err := url.Parse(row.URL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !strings.HasSuffix(parsed.Path, "/pull/"+number) || !strings.HasSuffix(row.URL, "/pull/"+number) {
+		return ""
+	}
+	return row.URL
+}
+
+// linksLine derives the URL pattern for PR links from one PR's URL.
+func linksLine(row Row) (string, bool) {
+	target := pullRequestURL(row)
+	if target == "" {
 		return "", false
 	}
-	return "Links: " + strings.TrimSuffix(row.URL, number) + "<number>", true
+	return "Links: " + strings.TrimSuffix(target, strconv.Itoa(row.Number)) + "<number>", true
 }
 
 // writeRowSection writes one titled table of rows, at most limit of them
 // (0 means all). The header always says how many of how many are shown.
-func writeRowSection(b *strings.Builder, kind string, rows []Row, limit int, withReview bool, linksDone *bool) {
+func writeRowSection(b *strings.Builder, kind string, rows []Row, limit int, withReview bool, linksDone *bool, hyperlinks bool) {
 	if len(rows) == 0 {
 		fmt.Fprintf(b, "\nOpen pull requests, %s (none)\n", kind)
 		return
@@ -257,6 +290,7 @@ func writeRowSection(b *strings.Builder, kind string, rows []Row, limit int, wit
 		header = []string{"#", "Age", "Updated", "Review facts", "Author", "Title"}
 	}
 	cells := make([][]string, 0, len(shown))
+	links := make([]string, 0, len(shown))
 	for _, row := range shown {
 		cell := []string{strconv.Itoa(row.Number), humanDuration(row.AgeSeconds), humanDuration(row.SecondsSinceUpdate)}
 		if withReview {
@@ -264,6 +298,7 @@ func writeRowSection(b *strings.Builder, kind string, rows []Row, limit int, wit
 		}
 		cell = append(cell, authorLabel(row.Author), cleanTitle(row.Title))
 		cells = append(cells, cell)
+		links = append(links, pullRequestURL(row))
 	}
-	writeTable(b, header, cells)
+	writeTable(b, header, cells, links, hyperlinks)
 }

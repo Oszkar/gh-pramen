@@ -22,6 +22,7 @@ gh pramen                           # report for the current repository
 gh pramen -R owner/repo             # report for one explicit repository
 gh pramen -R owner/repo --limit 50  # rows shown per section (default 20)
 gh pramen -R owner/repo --all       # every row
+gh pramen -R owner/repo --focus pending-requests  # one list of matching non-draft PRs
 gh pramen -R owner/repo --json      # full report as JSON, including every open PR
 ```
 
@@ -84,7 +85,18 @@ The JSON report has these parts; the summary shows the counts, and the terminal 
 
 Each term has a precise meaning and known limitations; see [the definitions](docs/product.md#definitions). Two matter most: an old PR is not necessarily abandoned, and an approved PR is not necessarily ready to merge.
 
-The terminal lists only the oldest PRs of each section. To select others, such as everything old, use `jq` on the JSON:
+The terminal normally lists the oldest PRs of each section. Use `--focus` to replace those two lists with one list of matching non-draft PRs, still oldest first:
+
+| View | Listed PRs |
+|---|---|
+| `old-non-draft` | Open non-draft PRs at least 90 days old |
+| `pending-requests` | Open non-draft PRs with one or more pending review requests |
+| `changes-requested` | Open non-draft PRs with one or more reviewers whose latest opinionated review requests changes |
+| `no-review-facts` | Open non-draft PRs with no approvals, change requests, or pending requests reported |
+
+The summary counts still cover the whole repository. `--limit` caps the focused list (default 20); `--all` shows every match. `--json` always contains every open PR and ignores a valid `--focus`. Invalid view names are usage errors. “No review facts” does not mean “unreviewed”; comment-only reviews are not counted. When stdout is an interactive terminal, PR numbers are clickable links. Redirected output stays plain text and retains the `Links:` URL pattern.
+
+To select other slices, use `jq` on the JSON:
 
 ```sh
 gh pramen -R owner/repo --json > backlog.json

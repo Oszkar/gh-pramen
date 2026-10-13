@@ -22,11 +22,12 @@ The useful boundary is **fetch → calculate → render**. Calculations are test
 | `main.go` | Flags, repository resolution, wiring, exit codes |
 | `fetch.go` | GraphQL queries, pagination, mapping API nodes to `PullRequest` |
 | `report.go` | Snapshot and report types, and `buildReport`, a pure function of the fetched facts and one reference time |
+| `focus.go` | Validation and pure selection of focused non-draft row views |
 | `render.go` | `writeJSON` and `writeSummary`, plus the row formatting helpers; they only lay out what the report already contains |
 
-**Current state:** `--json` writes the full report. The terminal output is the summary block (repository and collection time, open backlog, recent flow, age distribution, and review facts for non-draft PRs) followed by two row sections: non-draft PRs with review facts, and draft PRs without. Each section is capped by `--limit` (default 20) or uncapped with `--all`, and a Links line under the header of the first section that has rows gives the PR URL pattern once. GitHub's review decision is deliberately not in the terminal output. The formatting helpers (humanized durations, review-facts text, author and title cleaning, rune-aligned columns) live in `render.go`. `--limit` and `--all` change only the display: every PR is always fetched and the JSON always has all of them.
+**Current state:** `--json` writes the full report. The terminal output is the summary block (repository and collection time, open backlog, recent flow, age distribution, and review facts for non-draft PRs) followed by two row sections: non-draft PRs with review facts, and draft PRs without. `--focus` replaces those sections with one selected non-draft list, leaving the summary intact. Each section or focused list is capped by `--limit` (default 20) or uncapped with `--all`. A Links line gives the PR URL pattern once, and PR numbers are OSC 8 hyperlinks when stdout is an interactive terminal. GitHub's review decision is deliberately not in the terminal output. The formatting helpers (humanized durations, review-facts text, author and title cleaning, rune-aligned columns) live in `render.go`. All row flags change only the display: every PR is always fetched and the JSON always has all of them.
 
-The terminal output is plain text with no color or terminal-width logic, so it reads the same when redirected. Counts are right-aligned within each block, and times are shown in UTC. `testdata/report.golden.txt` is a complete example.
+Redirected terminal output is plain text with no color or terminal-width logic. Hyperlink escape codes are only emitted for interactive stdout with a non-dumb terminal, and only for validated HTTPS PR URLs. Counts are right-aligned within each block, and times are shown in UTC. `testdata/report.golden.txt` is a complete plain-text example.
 
 ## Data collection
 

@@ -16,7 +16,7 @@ func summaryOf(t *testing.T, prs []PullRequest, flow Flow) string {
 func summaryWithLimit(t *testing.T, prs []PullRequest, flow Flow, limit int) string {
 	t.Helper()
 	var out bytes.Buffer
-	if err := writeSummary(&out, buildReport("acme/widgets", prs, flow, testNow), limit); err != nil {
+	if err := writeSummary(&out, buildReport("acme/widgets", prs, flow, testNow), summaryOptions{rowLimit: limit}); err != nil {
 		t.Fatal(err)
 	}
 	return out.String()
@@ -323,5 +323,84 @@ func TestWriteSummaryAlignsRowsByRuneCount(t *testing.T) {
 	if !strings.Contains(got, "   1  3d   3d       -             élodie  x\n") ||
 		!strings.Contains(got, "  10  2d   2d       -             bob     y\n") {
 		t.Errorf("rows are not aligned by rune count; got:\n%s", got)
+	}
+}
+
+func TestFocusedRowsUseExistingFactsAndKeepOldestFirst(t *testing.T) {
+	prs := []PullRequest{
+		numberedPR(1, 100*day, true),
+		numberedPR(2, 90*day-time.Second, false),
+		numberedPR(3, 90*day, false),
+		numberedPR(4, 100*day, false),
+	}
+	prs[2].PendingReviewRequests = 1
+	prs[3].ChangesRequested = 1
+	prs[3].PendingReviewRequests = 1
+	rows := buildReport("acme/widgets", prs, Flow{}, testNow).PullRequests
+	tests := []struct {
+		focus focusKind
+		want  []int
+	}{
+		{focusOldNonDraft, []int{4, 3}},
+		{focusPendingRequests, []int{4, 3}},
+		{focusChangesRequested, []int{4}},
+		{focusNoReviewFacts, []int{2}},
+	}
+	for _, tt := range tests {
+		selected := focusedRows(rows, tt.focus)
+		if len(selected) != len(tt.want) {
+			t.Errorf("%s: got %d rows, want %d", tt.focus, len(selected), len(tt.want))
+			continue
+		}
+		for i, row := range selected {
+			if row.Number != tt.want[i] {
+				t.Errorf("%s: row %d = #%d, want #%d", tt.focus, i, row.Number, tt.want[i])
+			}
+		}
+	}
+}
+
+func TestWriteSummaryFocusWithNoMatchesShowsNone(t *testing.T) {
+	var out bytes.Buffer
+	r := buildReport("acme/widgets", []PullRequest{numberedPR(1, day, false)}, Flow{}, testNow)
+	if err := writeSummary(&out, r, summaryOptions{rowLimit: 20, focus: focusChangesRequested}); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Open pull requests, non-draft, with changes requested (none)\n") {
+		t.Errorf("missing empty focus section:\n%s", got)
+	}
+	if strings.Contains(got, "Open pull requests, draft (") || strings.Contains(got, "Links:") {
+		t.Errorf("unexpected default section or links:\n%s", got)
+	}
+}
+
+func TestTerminalHyperlinksWrapNumbersWithoutChangingColumnSpacing(t *testing.T) {
+	pr := numberedPR(7, day, false)
+	var out bytes.Buffer
+	r := buildReport("acme/widgets", []PullRequest{pr}, Flow{}, testNow)
+	if err := writeSummary(&out, r, summaryOptions{rowLimit: 20, hyperlinks: true}); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	link := "\x1b]8;;https://github.com/acme/widgets/pull/7\x1b\\7\x1b]8;;\x1b\\"
+	if !strings.Contains(got, "  "+link+"  1d") {
+		t.Errorf("number is not linked in its aligned cell:\n%q", got)
+	}
+	if strings.Count(got, "\x1b]8;;") != 2 {
+		t.Errorf("expected one opening and one closing hyperlink: %q", got)
+	}
+}
+
+func TestTerminalHyperlinksRejectUnsafeURL(t *testing.T) {
+	pr := numberedPR(7, day, false)
+	pr.URL = "https://github.com/acme/widgets/pull/7\x1b]8;;https://bad.example"
+	var out bytes.Buffer
+	r := buildReport("acme/widgets", []PullRequest{pr}, Flow{}, testNow)
+	if err := writeSummary(&out, r, summaryOptions{rowLimit: 20, hyperlinks: true}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "Links:") {
+		t.Errorf("unsafe URL reached terminal output: %q", out.String())
 	}
 }

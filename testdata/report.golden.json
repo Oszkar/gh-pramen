@@ -63,6 +63,14 @@
       "other": 0
     }
   },
+  "checks": {
+    "nonDraft": 4,
+    "success": 1,
+    "failureOrError": 1,
+    "pendingOrExpected": 1,
+    "noneReported": 1,
+    "other": 0
+  },
   "pullRequests": [
     {
       "number": 101,
@@ -81,6 +89,7 @@
       "pendingCodeOwnerRequests": 0,
       "approvals": 0,
       "changesRequested": 0,
+      "checkState": "SUCCESS",
       "ageSeconds": 80712000,
       "secondsSinceUpdate": 60204600
     },
@@ -101,6 +110,7 @@
       "pendingCodeOwnerRequests": 1,
       "approvals": 1,
       "changesRequested": 0,
+      "checkState": "FAILURE",
       "ageSeconds": 13056300,
       "secondsSinceUpdate": 2512800
     },
@@ -121,6 +131,7 @@
       "pendingCodeOwnerRequests": 1,
       "approvals": 0,
       "changesRequested": 0,
+      "checkState": null,
       "ageSeconds": 6253200,
       "secondsSinceUpdate": 6253195
     },
@@ -138,6 +149,7 @@
       "pendingCodeOwnerRequests": 0,
       "approvals": 1,
       "changesRequested": 1,
+      "checkState": "PENDING",
       "ageSeconds": 3967200,
       "secondsSinceUpdate": 874800
     },
@@ -158,6 +170,7 @@
       "pendingCodeOwnerRequests": 0,
       "approvals": 2,
       "changesRequested": 0,
+      "checkState": "SUCCESS",
       "ageSeconds": 86400,
       "secondsSinceUpdate": 14400
     }

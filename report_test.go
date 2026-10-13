@@ -222,3 +222,35 @@ func TestBuildReportEmptyRepositoryHasZeroCountsAndAllBuckets(t *testing.T) {
 		t.Errorf("PullRequests = %#v, want an empty non-nil slice", r.PullRequests)
 	}
 }
+
+func TestBuildReportCheckCountsCoverNonDraftPRsAndAddUp(t *testing.T) {
+	withCheck := func(n int, state *string) PullRequest {
+		p := openPR(n, day)
+		p.CheckState = state
+		return p
+	}
+	draft := draftPR(9, day)
+	draft.CheckState = strPtr("FAILURE")
+	prs := []PullRequest{
+		withCheck(1, strPtr("SUCCESS")),
+		withCheck(2, strPtr("FAILURE")),
+		withCheck(3, strPtr("ERROR")),
+		withCheck(4, strPtr("PENDING")),
+		withCheck(5, strPtr("EXPECTED")),
+		withCheck(6, nil),
+		withCheck(7, strPtr("SOMETHING_NEW")),
+		withCheck(8, strPtr("")),
+		draft,
+	}
+
+	r := buildReport("o/r", prs, Flow{}, testNow)
+
+	want := CheckCounts{NonDraft: 8, Success: 1, FailureOrError: 2, PendingOrExpected: 2, NoneReported: 1, Other: 2}
+	if r.Checks != want {
+		t.Errorf("Checks = %+v, want %+v", r.Checks, want)
+	}
+	c := r.Checks
+	if sum := c.Success + c.FailureOrError + c.PendingOrExpected + c.NoneReported + c.Other; sum != c.NonDraft {
+		t.Errorf("check buckets add up to %d, want %d", sum, c.NonDraft)
+	}
+}

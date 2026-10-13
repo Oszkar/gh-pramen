@@ -54,14 +54,20 @@ Review facts for the 4 non-draft pull requests (one PR can count in several rows
     only from CODEOWNERS        1
   With none of these            0
 
+Checks on the head commit of the 4 non-draft pull requests
+  Success           1
+  Failure or error  1
+  Pending/expected  1
+  None reported     1
+
 Open pull requests, non-draft (4, oldest first by creation date)
 Links: https://github.com/acme/widgets/pull/<number>
 
-    #  Age  Updated  Review facts                          Author           Title
-  140  5mo  29d      approvals 1, pending requests 2       bob              Add retry to the sync job
-  152  72d  72d      pending requests 1 (CODEOWNERS only)  dependabot[bot]  Bump left-pad from 1.2.0 to 1.3.0
-  160  45d  10d      approvals 1, changes requested 1      ghost            Backport the cache fix
-  171  1d   4h       approvals 2                           carol            Fix typo in the README
+    #  Age  Updated  Review facts                          Checks   Author           Title
+  140  5mo  29d      approvals 1, pending requests 2       failure  bob              Add retry to the sync job
+  152  72d  72d      pending requests 1 (CODEOWNERS only)  -        dependabot[bot]  Bump left-pad from 1.2.0 to 1.3.0
+  160  45d  10d      approvals 1, changes requested 1      pending  ghost            Backport the cache fix
+  171  1d   4h       approvals 2                           success  carol            Fix typo in the README
 
 Open pull requests, draft (1, oldest first by creation date)
 
@@ -81,9 +87,10 @@ The JSON report has these parts; the summary shows the counts, and the terminal 
 | `recentFlow` | PRs opened, merged, and closed without merge in the last 30 days |
 | `ageDistribution` | Open PRs aged under 7 days, 7–29 days, 30–89 days, and 90+ days |
 | `reviewState` | Non-draft PRs with approvals, change requests, or pending review requests (noting those that come only from CODEOWNERS), plus GitHub's review decision where it reports one |
-| `pullRequests` | Every open PR, oldest first, with its age, time since update, author, base branch, and review facts |
+| `checks` | Non-draft PRs by the check state of their head commit: success, failure or error, pending or expected, none reported, and any other state GitHub reports |
+| `pullRequests` | Every open PR, oldest first, with its age, time since update, author, base branch, review facts, and head-commit check state |
 
-Each term has a precise meaning and known limitations; see [the definitions](docs/product.md#definitions). Two matter most: an old PR is not necessarily abandoned, and an approved PR is not necessarily ready to merge.
+Each term has a precise meaning and known limitations; see [the definitions](docs/product.md#definitions). Three matter most: an old PR is not necessarily abandoned, an approved PR is not necessarily ready to merge, and a `success` check state includes optional checks and does not mean the PR can be merged.
 
 The terminal normally lists the oldest PRs of each section. Use `--focus` to replace those two lists with one list of matching non-draft PRs, still oldest first:
 

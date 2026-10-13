@@ -23,16 +23,19 @@ type cannedResponse struct {
 type fakeGitHub struct {
 	t         *testing.T
 	responses []cannedResponse
+	queries   []string
 	variables []map[string]interface{}
 }
 
 func (f *fakeGitHub) RoundTrip(req *http.Request) (*http.Response, error) {
 	var payload struct {
+		Query     string                 `json:"query"`
 		Variables map[string]interface{} `json:"variables"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 		f.t.Fatalf("decoding request body: %v", err)
 	}
+	f.queries = append(f.queries, payload.Query)
 	f.variables = append(f.variables, payload.Variables)
 
 	if len(f.responses) == 0 {
@@ -217,6 +220,25 @@ func TestFetchOpenPRsFailsWithoutPartialResultWhenLaterPageFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "acme/widgets") || !strings.Contains(err.Error(), "502") {
 		t.Errorf("err = %q, want it to name the repository and the HTTP status", err)
 	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("err = %q, want a hint that GitHub may have timed out", err)
+	}
+}
+
+func TestFetchOpenPRsGivesNoTimeoutHintForOtherHTTPErrors(t *testing.T) {
+	client, _ := newFakeClient(t, cannedResponse{status: http.StatusUnauthorized, body: `{"message":"Bad credentials"}`})
+
+	_, err := fetchOpenPRs(client, "acme", "widgets", noProgress)
+
+	if err == nil {
+		t.Fatal("err = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "acme/widgets") || !strings.Contains(err.Error(), "401") {
+		t.Errorf("err = %q, want it to name the repository and the HTTP status", err)
+	}
+	if strings.Contains(err.Error(), "timed out") {
+		t.Errorf("err = %q, want no timeout hint for a 401", err)
+	}
 }
 
 func TestFetchOpenPRsExplainsRepositoryNotFound(t *testing.T) {
@@ -240,6 +262,7 @@ func TestFetchOpenPRsFailsWhenReviewDataIsTruncated(t *testing.T) {
 		"nodes":[{"number":7,"title":"t","url":"u","isDraft":false,"baseRefName":"main",
 			"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z",
 			"reviewDecision":null,"author":null,
+			"commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]},
 			"reviewRequests":{"totalCount":51,"nodes":[{"asCodeOwner":false}]},
 			"latestOpinionatedReviews":{"totalCount":0,"nodes":[]}}]}}}}`
 	client, _ := newFakeClient(t, cannedResponse{status: http.StatusOK, body: body})
@@ -293,5 +316,114 @@ func TestFetchFlowFailsOnHTTPError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "acme/widgets") {
 		t.Errorf("err = %q, want it to name the repository", err)
+	}
+}
+
+func TestFetchOpenPRsRequestsHeadCommitRollupAtPageSize(t *testing.T) {
+	client, fake := newFakeClient(t, fixture(t, "open_prs_page1.json"), fixture(t, "open_prs_page2.json"))
+
+	if _, err := fetchOpenPRs(client, "acme", "widgets", noProgress); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, query := range fake.queries {
+		if !strings.Contains(query, "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }") {
+			t.Errorf("request %d does not ask for the head commit's check rollup:\n%s", i, query)
+		}
+		if fake.variables[i]["first"] != float64(openPRsPageSize) {
+			t.Errorf("request %d page size = %v, want %d", i, fake.variables[i]["first"], openPRsPageSize)
+		}
+	}
+}
+
+func TestFetchOpenPRsMapsCheckState(t *testing.T) {
+	client, _ := newFakeClient(t, fixture(t, "open_prs_page1.json"), fixture(t, "open_prs_page2.json"))
+
+	prs, err := fetchOpenPRs(client, "acme", "widgets", noProgress)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[int]string{101: "SUCCESS", 140: "FAILURE", 152: "", 160: "PENDING", 171: "SUCCESS"}
+	for _, pr := range prs {
+		got := ""
+		if pr.CheckState != nil {
+			got = *pr.CheckState
+		}
+		if got != want[pr.Number] || (want[pr.Number] == "") != (pr.CheckState == nil) {
+			t.Errorf("PR %d check state = %v, want %q (empty means nil)", pr.Number, pr.CheckState, want[pr.Number])
+		}
+	}
+}
+
+// singlePRPage is a one-PR response whose commits field is the given JSON.
+func singlePRPage(commits string) cannedResponse {
+	body := `{"data":{"repository":{"pullRequests":{"totalCount":1,
+		"pageInfo":{"hasNextPage":false,"endCursor":null},
+		"nodes":[{"number":7,"title":"t","url":"u","isDraft":false,"baseRefName":"main",
+			"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z",
+			"reviewDecision":null,"author":null,"commits":` + commits + `,
+			"reviewRequests":{"totalCount":0,"nodes":[]},
+			"latestOpinionatedReviews":{"totalCount":0,"nodes":[]}}]}}}}`
+	return cannedResponse{status: http.StatusOK, body: body}
+}
+
+func TestFetchOpenPRsFailsWhenHeadCommitIsMissing(t *testing.T) {
+	for name, commits := range map[string]string{
+		"no commit nodes": `{"nodes":[]}`,
+		"null commit":     `{"nodes":[{"commit":null}]}`,
+		"null commits":    `null`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, _ := newFakeClient(t, singlePRPage(commits))
+
+			prs, err := fetchOpenPRs(client, "acme", "widgets", noProgress)
+
+			if err == nil {
+				t.Fatalf("err = nil with %d PRs, want an error for the missing head commit", len(prs))
+			}
+			if !strings.Contains(err.Error(), "#7") || !strings.Contains(err.Error(), "acme/widgets") {
+				t.Errorf("err = %q, want it to name PR #7 and the repository", err)
+			}
+		})
+	}
+}
+
+func TestFetchOpenPRsKeepsUnexpectedCheckStateAsReported(t *testing.T) {
+	client, _ := newFakeClient(t, singlePRPage(`{"nodes":[{"commit":{"statusCheckRollup":{"state":"SOMETHING_NEW"}}}]}`))
+
+	prs, err := fetchOpenPRs(client, "acme", "widgets", noProgress)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prs[0].CheckState == nil || *prs[0].CheckState != "SOMETHING_NEW" {
+		t.Errorf("check state = %v, want SOMETHING_NEW", prs[0].CheckState)
+	}
+}
+
+func TestFetchOpenPRsFailsOnPartialDataWithErrors(t *testing.T) {
+	body := `{"data":{"repository":{"pullRequests":{"totalCount":1,
+		"pageInfo":{"hasNextPage":false,"endCursor":null},
+		"nodes":[{"number":7,"title":"t","url":"u","isDraft":false,"baseRefName":"main",
+			"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z",
+			"reviewDecision":null,"author":null,
+			"commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]},
+			"reviewRequests":{"totalCount":0,"nodes":[]},
+			"latestOpinionatedReviews":{"totalCount":0,"nodes":[]}}]}}},
+		"errors":[{"type":"FORBIDDEN","path":["repository","pullRequests","nodes",0,"commits","nodes",0,"commit","statusCheckRollup"],
+			"message":"Resource not accessible by personal access token"}]}`
+	client, _ := newFakeClient(t, cannedResponse{status: http.StatusOK, body: body})
+
+	prs, err := fetchOpenPRs(client, "acme", "widgets", noProgress)
+
+	if err == nil {
+		t.Fatal("err = nil, want the GraphQL error instead of a missing check state")
+	}
+	if prs != nil {
+		t.Errorf("got %d PRs alongside the error, want none", len(prs))
+	}
+	if !strings.Contains(err.Error(), "acme/widgets") || !strings.Contains(err.Error(), "Resource not accessible") {
+		t.Errorf("err = %q, want the repository and GitHub's message", err)
 	}
 }

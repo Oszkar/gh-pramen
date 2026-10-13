@@ -116,6 +116,7 @@ func TestRunJSONKeepsTitlesReadable(t *testing.T) {
 		"nodes":[{"number":7,"title":"Use <T> & drop \"legacy\" mode","url":"u","isDraft":false,"baseRefName":"main",
 			"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z",
 			"reviewDecision":null,"author":null,
+			"commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]},
 			"reviewRequests":{"totalCount":0,"nodes":[]},
 			"latestOpinionatedReviews":{"totalCount":0,"nodes":[]}}]}}}}`
 	tr := newTestRun(t, cannedResponse{status: http.StatusOK, body: body}, fixture(t, "flow.json"))
@@ -283,6 +284,7 @@ func manyOpenPRs(n int) cannedResponse {
 	for i := 1; i <= n; i++ {
 		nodes = append(nodes, fmt.Sprintf(`{"number":%d,"title":"PR %d","url":"https://github.com/acme/widgets/pull/%d","isDraft":false,"baseRefName":"main",
 			"createdAt":"2026-01-%02dT00:00:00Z","updatedAt":"2026-01-%02dT00:00:00Z","reviewDecision":null,"author":null,
+			"commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]},
 			"reviewRequests":{"totalCount":0,"nodes":[]},"latestOpinionatedReviews":{"totalCount":0,"nodes":[]}}`, i, i, i, i, i))
 	}
 	body := fmt.Sprintf(`{"data":{"repository":{"pullRequests":{"totalCount":%d,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[%s]}}}}`, n, strings.Join(nodes, ","))

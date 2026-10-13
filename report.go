@@ -29,6 +29,9 @@ type PullRequest struct {
 	PendingCodeOwnerRequests int     `json:"pendingCodeOwnerRequests"`
 	Approvals                int     `json:"approvals"`
 	ChangesRequested         int     `json:"changesRequested"`
+	// CheckState is GitHub's check rollup state for the head commit, as
+	// reported, or nil when no checks are reported.
+	CheckState *string `json:"checkState"`
 }
 
 // Flow holds counts of pull requests opened, merged, and closed without
@@ -47,6 +50,7 @@ type Report struct {
 	RecentFlow      RecentFlow  `json:"recentFlow"`
 	AgeDistribution []AgeBucket `json:"ageDistribution"`
 	ReviewState     ReviewState `json:"reviewState"`
+	Checks          CheckCounts `json:"checks"`
 	PullRequests    []Row       `json:"pullRequests"`
 }
 
@@ -90,6 +94,33 @@ type DecisionCounts struct {
 	ReviewRequired   int `json:"reviewRequired"`
 	NotReported      int `json:"notReported"`
 	Other            int `json:"other"`
+}
+
+// CheckCounts counts the head commit's check rollup state over the non-draft
+// open PRs. Every PR is in exactly one bucket.
+type CheckCounts struct {
+	NonDraft          int `json:"nonDraft"`
+	Success           int `json:"success"`
+	FailureOrError    int `json:"failureOrError"`
+	PendingOrExpected int `json:"pendingOrExpected"`
+	NoneReported      int `json:"noneReported"`
+	Other             int `json:"other"`
+}
+
+func (c *CheckCounts) add(state *string) {
+	c.NonDraft++
+	switch {
+	case state == nil:
+		c.NoneReported++
+	case *state == "SUCCESS":
+		c.Success++
+	case *state == "FAILURE" || *state == "ERROR":
+		c.FailureOrError++
+	case *state == "PENDING" || *state == "EXPECTED":
+		c.PendingOrExpected++
+	default:
+		c.Other++
+	}
 }
 
 type Row struct {
@@ -206,6 +237,7 @@ func buildReport(repo string, prs []PullRequest, flow Flow, now time.Time) Repor
 
 		if !pr.IsDraft {
 			r.ReviewState.add(pr)
+			r.Checks.add(pr.CheckState)
 		}
 
 		r.PullRequests = append(r.PullRequests, Row{

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
@@ -17,13 +18,18 @@ type graphQLClient interface {
 // must match the literal in openPRsQuery.
 const nestedLimit = 50
 
+// openPRsPageSize is the number of pull requests read per request. Asking
+// for the head commit's check rollup makes each page slower; the size was
+// chosen from measured full runs (see docs/architecture.md).
+const openPRsPageSize = 50
+
 // Pull requests come from the repository connection, not search, so the
-// 1000-result search cap does not apply. Merge-conflict and check status are
-// left out on purpose: asking for them in bulk makes the API time out.
+// 1000-result search cap does not apply. Merge-conflict status is left out on
+// purpose: asking for it in bulk makes the API time out.
 const openPRsQuery = `
-query($owner: String!, $name: String!, $after: String) {
+query($owner: String!, $name: String!, $first: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
-    pullRequests(states: OPEN, first: 100, after: $after, orderBy: {field: CREATED_AT, direction: ASC}) {
+    pullRequests(states: OPEN, first: $first, after: $after, orderBy: {field: CREATED_AT, direction: ASC}) {
       totalCount
       pageInfo { hasNextPage endCursor }
       nodes {
@@ -36,6 +42,7 @@ query($owner: String!, $name: String!, $after: String) {
         updatedAt
         reviewDecision
         author { __typename login }
+        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
         reviewRequests(first: 50) { totalCount nodes { asCodeOwner } }
         latestOpinionatedReviews(first: 50) { totalCount nodes { state } }
       }
@@ -69,6 +76,14 @@ type prNode struct {
 		Typename string `json:"__typename"`
 		Login    string
 	}
+	// Commits holds the head commit; a nil rollup means no checks reported.
+	Commits *struct {
+		Nodes []struct {
+			Commit *struct {
+				StatusCheckRollup *struct{ State string }
+			}
+		}
+	}
 	ReviewRequests struct {
 		TotalCount int
 		Nodes      []struct{ AsCodeOwner bool }
@@ -84,6 +99,11 @@ func (n prNode) toPullRequest() (PullRequest, error) {
 		n.LatestOpinionatedReviews.TotalCount > len(n.LatestOpinionatedReviews.Nodes) {
 		return PullRequest{}, fmt.Errorf("pull request #%d has more than %d review requests or reviews, which is not supported", n.Number, nestedLimit)
 	}
+	// Only an explicit null rollup on a known head commit means no checks
+	// were reported; anything less is missing data, not an absence.
+	if n.Commits == nil || len(n.Commits.Nodes) != 1 || n.Commits.Nodes[0].Commit == nil {
+		return PullRequest{}, fmt.Errorf("could not read the head commit of pull request #%d", n.Number)
+	}
 
 	pr := PullRequest{
 		Number:                n.Number,
@@ -95,6 +115,9 @@ func (n prNode) toPullRequest() (PullRequest, error) {
 		UpdatedAt:             n.UpdatedAt,
 		ReviewDecision:        n.ReviewDecision,
 		PendingReviewRequests: n.ReviewRequests.TotalCount,
+	}
+	if rollup := n.Commits.Nodes[0].Commit.StatusCheckRollup; rollup != nil {
+		pr.CheckState = &rollup.State
 	}
 	if n.Author != nil {
 		pr.Author = &Author{Login: n.Author.Login, Type: n.Author.Typename}
@@ -125,12 +148,16 @@ func fetchOpenPRs(client graphQLClient, owner, name string, progress func(fetche
 
 	for {
 		var resp openPRsResponse
-		variables := map[string]interface{}{"owner": owner, "name": name, "after": after}
+		variables := map[string]interface{}{"owner": owner, "name": name, "first": openPRsPageSize, "after": after}
 		err := client.Do(openPRsQuery, variables, &resp)
 
 		var gqlErr *api.GraphQLError
 		if (errors.As(err, &gqlErr) && gqlErr.Match("NOT_FOUND", "repository")) || (err == nil && resp.Repository == nil) {
 			return nil, fmt.Errorf("repository %s was not found or the active gh account cannot access it; check the account with `gh auth status`", repo)
+		}
+		var httpErr *api.HTTPError
+		if errors.As(err, &httpErr) && (httpErr.StatusCode == http.StatusBadGateway || httpErr.StatusCode == http.StatusGatewayTimeout) {
+			return nil, fmt.Errorf("fetching open pull requests for %s: %w (GitHub may have timed out on a large page; try again)", repo, err)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("fetching open pull requests for %s: %w", repo, err)
